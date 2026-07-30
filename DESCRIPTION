@@ -1,0 +1,22 @@
+Package: origenes
+Title: Dashboard de Orígenes de la División
+Version: 0.1.0
+Encoding: UTF-8
+Description: Aplicación Shiny independiente para analizar los canales de origen de la división.
+Imports:
+    shiny,
+    bslib,
+    DT,
+    dplyr,
+    lubridate,
+    ggplot2,
+    plotly,
+    scales,
+    stringr,
+    tibble,
+    tidyr,
+    httr2,
+    jsonlite
+Suggests:
+    rsconnect
+License: MIT

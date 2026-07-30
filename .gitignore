@@ -1,0 +1,32 @@
+.Rhistory
+.RData
+.Ruserdata
+.Renviron
+.DS_Store
+rsconnect/
+data/cache/*
+!data/cache/.gitkeep
+data/*.rds
+data/*.csv
+# Raw Brokers exports include client PII (phone/email)
+data/brokers/raw/*
+!data/brokers/raw/.gitkeep
+# Canonical tables may still contain prospect names — keep local unless reviewed
+data/brokers/canonical/*
+!data/brokers/canonical/.gitkeep
+# NxtGen listas / exports de conciliación
+data/nxtgen/**
+!data/nxtgen/.gitkeep
+!data/nxtgen/**/.gitkeep
+# Exploración / dumps Embajadores (PII)
+data/ambassadors/**
+!data/ambassadors/.gitkeep
+!data/ambassadors/**/.gitkeep
+# Canónicos unidos (pueden incluir nombres)
+data/canonical/**
+!data/canonical/.gitkeep
+!data/canonical/**/.gitkeep
+
+# Auditorías temporales (PII)
+data/audit/**
+!data/audit/.gitkeep

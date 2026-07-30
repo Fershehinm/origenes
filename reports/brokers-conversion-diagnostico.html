@@ -1,0 +1,350 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Por qué no se vende · Brokers · Jul 2026</title>
+  <style>
+    :root {
+      --bg: #f7f5f1;
+      --surface: #ffffff;
+      --ink: #1a221c;
+      --muted: #5c675f;
+      --line: #e4ddd3;
+      --green: #1f6a4a;
+      --green-soft: #e8f2ec;
+      --amber: #9a6b16;
+      --amber-soft: #f8efd9;
+      --red: #9b2c2c;
+      --red-soft: #f8e8e8;
+      --blue: #245b7a;
+      --blue-soft: #e7f1f6;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      font-family: "Segoe UI", "Helvetica Neue", Arial, sans-serif;
+      color: var(--ink);
+      background: var(--bg);
+      line-height: 1.5;
+      font-size: 15px;
+    }
+    .page { max-width: 960px; margin: 0 auto; padding: 40px 28px 64px; }
+    header.hero, section, .verdict, .scope {
+      background: var(--surface);
+      border: 1px solid var(--line);
+      border-radius: 16px;
+      padding: 22px 28px;
+      margin-bottom: 18px;
+    }
+    .eyebrow { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 12px; }
+    .chip {
+      display: inline-block;
+      padding: 3px 10px;
+      border-radius: 999px;
+      font-size: 12px;
+      font-weight: 600;
+      background: var(--blue-soft);
+      color: var(--blue);
+    }
+    .chip.warn { background: var(--amber-soft); color: var(--amber); }
+    .chip.muted { background: #eeeae3; color: var(--muted); }
+    h1 { font-size: 28px; margin: 0 0 10px; letter-spacing: -0.02em; }
+    h2 { font-size: 20px; margin: 0 0 8px; }
+    h3 { font-size: 15px; margin: 18px 0 8px; }
+    .lede { color: var(--muted); margin: 0; max-width: 70ch; }
+    .meta { color: var(--muted); font-size: 13px; margin-top: 14px; }
+    .verdict { background: var(--amber-soft); border-color: #edd9a8; }
+    .verdict strong { display: block; margin-bottom: 6px; }
+    .verdict p { margin: 0; color: #5a4310; }
+    .scope { background: var(--blue-soft); border-color: #c5d9e4; }
+    .scope p { margin: 0 0 8px; color: #1e4054; }
+    .scope p:last-child { margin: 0; }
+    .kpis {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 12px;
+      margin-bottom: 18px;
+    }
+    .kpi {
+      background: var(--surface);
+      border: 1px solid var(--line);
+      border-radius: 14px;
+      padding: 16px 18px;
+    }
+    .kpi .value {
+      font-size: 24px;
+      font-weight: 700;
+      letter-spacing: -0.03em;
+      margin-bottom: 6px;
+    }
+    .kpi .label { font-size: 12px; color: var(--muted); }
+    .kpi.danger .value { color: var(--red); }
+    .kpi.warn .value { color: var(--amber); }
+    .section-num {
+      font-size: 12px;
+      font-weight: 700;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      color: var(--green);
+      margin-bottom: 6px;
+    }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 13px;
+      margin-top: 12px;
+    }
+    th, td {
+      padding: 8px 10px;
+      border-bottom: 1px solid var(--line);
+      text-align: left;
+    }
+    th { color: var(--muted); font-size: 11px; text-transform: uppercase; letter-spacing: 0.04em; }
+    td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }
+    tr.bad td { background: var(--red-soft); }
+    tr.warn td { background: var(--amber-soft); }
+    .bars { display: flex; flex-direction: column; gap: 7px; margin-top: 10px; }
+    .bar-row { display: grid; grid-template-columns: 48px 1fr 52px; gap: 8px; align-items: center; font-size: 13px; }
+    .bar-track { height: 10px; background: #eeeae3; border-radius: 999px; overflow: hidden; }
+    .bar-fill { height: 100%; border-radius: 999px; background: var(--green); }
+    .bar-fill.amber { background: #c4922a; }
+    .bar-fill.danger { background: var(--red); }
+    .bar-fill.muted { background: #9aa39a; }
+    .num { text-align: right; font-variant-numeric: tabular-nums; color: var(--muted); }
+    .note { font-size: 13px; color: var(--muted); margin-top: 10px; }
+    .two { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+    .box { border: 1px solid var(--line); border-radius: 12px; padding: 14px 16px; }
+    .actions { background: var(--green-soft); border-color: #c5dccf; }
+    .actions li { margin-bottom: 6px; }
+    @media (max-width: 800px) {
+      .kpis, .two { grid-template-columns: 1fr 1fr; }
+    }
+    @media (max-width: 560px) {
+      .kpis, .two { grid-template-columns: 1fr; }
+    }
+  </style>
+</head>
+<body>
+  <div class="page">
+    <header class="hero">
+      <div class="eyebrow">
+        <span class="chip">Orígenes · Brokers</span>
+        <span class="chip muted">Solo citas nuevas</span>
+        <span class="chip muted">Ene – Jul 2026</span>
+        <span class="chip warn">Julio incompleto</span>
+      </div>
+      <h1>Por qué no se está vendiendo en Brokers</h1>
+      <p class="lede">
+        Separando responsabilidades: embajadores hacen que el prospecto llegue;
+        vendedores cierran la cita realizada. Base: 220 citas nuevas, 83 realizadas,
+        8 Firmado.
+      </p>
+      <p class="meta">Documento interno · División 2 · 28 julio 2026</p>
+    </header>
+
+    <div class="scope">
+      <p><strong>Atribución (regla de negocio)</strong></p>
+      <p>• <strong>Show-up</strong> (nueva → realizada): responsabilidad del <em>embajador/broker</em>. No depende del vendedor.</p>
+      <p>• <strong>Cierre</strong> (realizada → Firmado): responsabilidad del <em>vendedor</em>.</p>
+      <p>• Fuera de alcance: registro → agenda.</p>
+    </div>
+
+    <div class="verdict">
+      <strong>Veredicto</strong>
+      <p>
+        El problema de ventas está en el <em>cierre</em>, no en la falta de citas.
+        Mar–jul: 62 realizadas nuevas y solo 1 Firmado (close rate 1.6% vs 33% en ene–feb).
+        En paralelo, el show-up de embajadores concentra no-shows en pocos brokers
+        (Daniel: 56 de 71 no llegan), lo que reduce oportunidades —pero aunque el
+        prospecto llegue, el equipo deja de firmar.
+      </p>
+    </div>
+
+    <div class="kpis">
+      <div class="kpi danger">
+        <div class="value">1.6%</div>
+        <div class="label">Close rate mar–jul (1 / 62 realizadas)</div>
+      </div>
+      <div class="kpi warn">
+        <div class="value">33%</div>
+        <div class="label">Close rate ene–feb (7 / 21)</div>
+      </div>
+      <div class="kpi warn">
+        <div class="value">21%</div>
+        <div class="label">Show-up Daniel (71 nuevas · 56 no llegan)</div>
+      </div>
+      <div class="kpi danger">
+        <div class="value">8 / 83</div>
+        <div class="label">Firmado / realizadas nuevas (periodo)</div>
+      </div>
+    </div>
+
+    <section>
+      <div class="section-num">01 · Embudo</div>
+      <h2>Solo citas nuevas</h2>
+      <div class="two" style="margin-top:14px">
+        <div class="box">
+          <strong>Show-up (embajador)</strong>
+          <div class="bars">
+            <div class="bar-row"><span>Ene</span><div class="bar-track"><div class="bar-fill" style="width:53%"></div></div><span class="num">53%</span></div>
+            <div class="bar-row"><span>Feb</span><div class="bar-track"><div class="bar-fill amber" style="width:34%"></div></div><span class="num">34%</span></div>
+            <div class="bar-row"><span>Mar</span><div class="bar-track"><div class="bar-fill amber" style="width:41%"></div></div><span class="num">41%</span></div>
+            <div class="bar-row"><span>Abr</span><div class="bar-track"><div class="bar-fill danger" style="width:27%"></div></div><span class="num">27%</span></div>
+            <div class="bar-row"><span>May</span><div class="bar-track"><div class="bar-fill amber" style="width:39%"></div></div><span class="num">39%</span></div>
+            <div class="bar-row"><span>Jun</span><div class="bar-track"><div class="bar-fill amber" style="width:40%"></div></div><span class="num">40%</span></div>
+            <div class="bar-row"><span>Jul*</span><div class="bar-track"><div class="bar-fill danger" style="width:33%"></div></div><span class="num">33%</span></div>
+          </div>
+        </div>
+        <div class="box">
+          <strong>Firmados (vendedor)</strong>
+          <div class="bars">
+            <div class="bar-row"><span>Ene</span><div class="bar-track"><div class="bar-fill muted" style="width:100%"></div></div><span class="num">4</span></div>
+            <div class="bar-row"><span>Feb</span><div class="bar-track"><div class="bar-fill muted" style="width:75%"></div></div><span class="num">3</span></div>
+            <div class="bar-row"><span>Mar</span><div class="bar-track"><div class="bar-fill danger" style="width:0%"></div></div><span class="num">0</span></div>
+            <div class="bar-row"><span>Abr</span><div class="bar-track"><div class="bar-fill muted" style="width:25%"></div></div><span class="num">1</span></div>
+            <div class="bar-row"><span>May</span><div class="bar-track"><div class="bar-fill danger" style="width:0%"></div></div><span class="num">0</span></div>
+            <div class="bar-row"><span>Jun</span><div class="bar-track"><div class="bar-fill danger" style="width:0%"></div></div><span class="num">0</span></div>
+            <div class="bar-row"><span>Jul*</span><div class="bar-track"><div class="bar-fill danger" style="width:0%"></div></div><span class="num">0</span></div>
+          </div>
+          <p class="note">May–jun: pico de realizadas (17–18) y cero Firmado.</p>
+        </div>
+      </div>
+      <table>
+        <thead>
+          <tr>
+            <th>Mes</th>
+            <th class="num">Nuevas</th>
+            <th class="num">Realizadas</th>
+            <th class="num">Show-up (emb)</th>
+            <th class="num">Firmados (vend)</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr><td>Ene</td><td class="num">19</td><td class="num">10</td><td class="num">53%</td><td class="num">4</td></tr>
+          <tr><td>Feb</td><td class="num">32</td><td class="num">11</td><td class="num">34%</td><td class="num">3</td></tr>
+          <tr class="bad"><td>Mar</td><td class="num">29</td><td class="num">12</td><td class="num">41%</td><td class="num">0</td></tr>
+          <tr class="bad"><td>Abr</td><td class="num">30</td><td class="num">8</td><td class="num">27%</td><td class="num">1</td></tr>
+          <tr class="bad"><td>May</td><td class="num">44</td><td class="num">17</td><td class="num">39%</td><td class="num">0</td></tr>
+          <tr class="bad"><td>Jun</td><td class="num">45</td><td class="num">18</td><td class="num">40%</td><td class="num">0</td></tr>
+          <tr class="bad"><td>Jul*</td><td class="num">21</td><td class="num">7</td><td class="num">33%</td><td class="num">0</td></tr>
+        </tbody>
+      </table>
+    </section>
+
+    <section>
+      <div class="section-num">02 · Embajadores</div>
+      <h2>Conversión a cita realizada (show-up)</h2>
+      <p class="lede">Si el prospecto no llega, es del broker/embajador —no del vendedor asignado.</p>
+      <table>
+        <thead>
+          <tr>
+            <th>Embajador</th>
+            <th class="num">Nuevas</th>
+            <th class="num">Realizadas</th>
+            <th class="num">Show-up</th>
+            <th class="num">No llegan</th>
+            <th class="num">Firmados*</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr class="warn"><td>Daniel Cobo Pascal</td><td class="num">71</td><td class="num">15</td><td class="num">21%</td><td class="num">56</td><td class="num">1</td></tr>
+          <tr><td>María Del Carmen Buenfil</td><td class="num">18</td><td class="num">11</td><td class="num">61%</td><td class="num">7</td><td class="num">0</td></tr>
+          <tr><td>Rodrigo Daniel Espriu</td><td class="num">11</td><td class="num">3</td><td class="num">27%</td><td class="num">8</td><td class="num">1</td></tr>
+          <tr><td>Cesar Eduardo Rendon</td><td class="num">9</td><td class="num">3</td><td class="num">33%</td><td class="num">6</td><td class="num">0</td></tr>
+          <tr><td>Gicela Castañeda Cruz</td><td class="num">8</td><td class="num">2</td><td class="num">25%</td><td class="num">6</td><td class="num">0</td></tr>
+          <tr><td>Juan Pablo Ibarra Gussi</td><td class="num">6</td><td class="num">4</td><td class="num">67%</td><td class="num">2</td><td class="num">0</td></tr>
+          <tr><td>Zulema Gussi De Ibarra</td><td class="num">6</td><td class="num">1</td><td class="num">17%</td><td class="num">5</td><td class="num">0</td></tr>
+          <tr><td>Berenice Willy</td><td class="num">5</td><td class="num">2</td><td class="num">40%</td><td class="num">3</td><td class="num">1</td></tr>
+          <tr><td>Carlos Ibarra</td><td class="num">4</td><td class="num">4</td><td class="num">100%</td><td class="num">0</td><td class="num">0</td></tr>
+          <tr><td>Mauricio Sanchez</td><td class="num">4</td><td class="num">4</td><td class="num">100%</td><td class="num">0</td><td class="num">0</td></tr>
+          <tr><td>Patricia Valencia</td><td class="num">4</td><td class="num">2</td><td class="num">50%</td><td class="num">2</td><td class="num">0</td></tr>
+          <tr><td>Ulises Franco</td><td class="num">4</td><td class="num">2</td><td class="num">50%</td><td class="num">2</td><td class="num">0</td></tr>
+          <tr><td>Martha Elena Guevara</td><td class="num">4</td><td class="num">2</td><td class="num">50%</td><td class="num">2</td><td class="num">0</td></tr>
+        </tbody>
+      </table>
+      <p class="note">
+        Daniel = 32% del volumen con 21% show-up (56 no-shows). Es el mayor freno de
+        oportunidad aguas arriba. Buenfil trae buen show-up (61%, 11 realizadas) y
+        aun así 0 Firmado: ahí el cuello ya es de vendedores.
+      </p>
+    </section>
+
+    <section>
+      <div class="section-num">03 · Vendedores</div>
+      <h2>Conversión a Firmado (cierre)</h2>
+      <p class="lede">
+        Denominador = realizadas nuevas atendidas. Numerador = Firmado del vendedor de la venta.
+        Aquí está el “por qué no se vende”.
+      </p>
+      <div class="two" style="margin-top:12px">
+        <div class="box">
+          <strong>Close rate ene–feb</strong>
+          <p style="font-size:28px;font-weight:700;margin:8px 0 0;color:var(--amber)">33%</p>
+          <p class="note" style="margin:4px 0 0">7 Firmados / 21 realizadas</p>
+        </div>
+        <div class="box">
+          <strong>Close rate mar–jul</strong>
+          <p style="font-size:28px;font-weight:700;margin:8px 0 0;color:var(--red)">1.6%</p>
+          <p class="note" style="margin:4px 0 0">1 Firmado / 62 realizadas</p>
+        </div>
+      </div>
+      <table>
+        <thead>
+          <tr>
+            <th>Vendedor</th>
+            <th class="num">Realizadas nuevas</th>
+            <th class="num">Firmados</th>
+            <th class="num">Close rate</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr><td>Jose Pablo Inzunza</td><td class="num">17</td><td class="num">2</td><td class="num">12%</td></tr>
+          <tr><td>Yemi Alfie Atri</td><td class="num">10</td><td class="num">1</td><td class="num">10%</td></tr>
+          <tr><td>Diego Espinosa</td><td class="num">10</td><td class="num">1</td><td class="num">10%</td></tr>
+          <tr><td>Karime Braña</td><td class="num">10</td><td class="num">0</td><td class="num">0%</td></tr>
+          <tr><td>Jose Manuel Duran</td><td class="num">9</td><td class="num">1</td><td class="num">11%</td></tr>
+          <tr><td>Mauricio Sanchez (OL)</td><td class="num">8</td><td class="num">0</td><td class="num">0%</td></tr>
+          <tr><td>Santiago Navarro</td><td class="num">5</td><td class="num">0</td><td class="num">0%</td></tr>
+          <tr><td>Eduardo Salazar</td><td class="num">3</td><td class="num">1</td><td class="num">33%</td></tr>
+          <tr><td>Daniel Loeza King</td><td class="num">2</td><td class="num">2</td><td class="num">100%</td></tr>
+        </tbody>
+      </table>
+      <p class="note">
+        Desde marzo hay realizadas suficientes en Jose Pablo, Yemi, Diego, Karime, Jose Manuel, etc.
+        El close rate del canal cae de 1 de cada 3 a casi cero. Revisar post-cita
+        (seguimiento, objeción, proyecto), no la agenda de embajadores.
+      </p>
+    </section>
+
+    <section>
+      <div class="section-num">04 · Síntesis</div>
+      <h2>Dos cuellos, dos dueños</h2>
+      <div class="two">
+        <div class="box">
+          <strong>Cuello embajador</strong>
+          <p class="note">Show-up del top de volumen (Daniel primero). Calidad del prospecto que agenda. No atribuir no-show al vendedor.</p>
+        </div>
+        <div class="box">
+          <strong>Cuello vendedor</strong>
+          <p class="note">Pipeline de ~62 realizadas sin Firmado desde marzo. Meta: recuperar close rate hacia ~30% de ene–feb.</p>
+        </div>
+      </div>
+    </section>
+
+    <section class="actions">
+      <div class="section-num">05 · Acciones</div>
+      <h2>Qué hacer</h2>
+      <ul>
+        <li><strong>Embajadores:</strong> coaching de show-up en el top de volumen (Daniel); medir show-up de nuevas por embajador.</li>
+        <li><strong>Vendedores:</strong> review semanal de realizadas sin cierre desde marzo; KPI = Firmado / realizadas nuevas.</li>
+        <li><strong>Dash:</strong> separar KPI embajador (show-up) vs KPI vendedor (cierre). No mezclar registro→agenda ni culpar assignee por no-show.</li>
+      </ul>
+      <p class="note" style="margin-top:12px">
+        Fuente: <code>data/brokers/canonical</code>. Solo <code>primera_cita</code>.
+        Firmado = <code>cuenta_conversion</code>. Matching por nombre (pendiente IDs CRM).
+      </p>
+    </section>
+  </div>
+</body>
+</html>
