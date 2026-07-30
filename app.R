@@ -22,6 +22,10 @@ renviron <- file.path(APP_ROOT, ".Renviron")
 if (file.exists(renviron)) {
   readRenviron(renviron)
 }
+renviron_deploy <- file.path(APP_ROOT, ".Renviron.deploy")
+if (file.exists(renviron_deploy)) {
+  readRenviron(renviron_deploy)
+}
 
 source(file.path(APP_ROOT, "data_nxtgen.R"), local = FALSE)
 source(file.path(APP_ROOT, "data_brokers.R"), local = FALSE)
