@@ -2,6 +2,7 @@
 .RData
 .Ruserdata
 .Renviron
+.Renviron.deploy
 .DS_Store
 rsconnect/
 data/cache/*
