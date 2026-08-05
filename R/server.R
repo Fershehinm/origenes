@@ -21,12 +21,13 @@ origenes_period_header_ui <- function(label, span_label, range_label) {
   )
 }
 
-origenes_resumen_header_ui <- function(bundle) {
+origenes_resumen_header_ui <- function(bundle, prefix) {
   if (is.null(bundle)) {
     return(origenes_empty_ui())
   }
   k <- bundle$kpis
   gran_label <- origenes_period_label_es(bundle$granularity %||% "mensual")
+  active_days <- tryCatch(brokers_active_window_days(), error = function(e) 30L)
   shiny::div(
     class = "or-resumen",
     origenes_period_header_ui(
@@ -45,35 +46,528 @@ origenes_resumen_header_ui <- function(bundle) {
           nxtgen_fmt_pct(k$conv_primera_reg),
           " conversión"
         ),
-        accent = TRUE
+        accent = TRUE,
+        id = paste0(prefix, "_kpi_resumen_registrados")
       ),
       origenes_resumen_kpi(
-        "Activos (30 días)",
+        paste0("Activos (", active_days, " días)"),
         nxtgen_fmt_num(k$activos),
-        paste0(nxtgen_fmt_pct(k$conv_activo_primera), " de quienes ya tuvieron primera cita")
+        paste0(
+          "Stock del canal: embajadores con cita en los últimos ",
+          active_days,
+          " días (no solo la cohorte del filtro)"
+        ),
+        id = paste0(prefix, "_kpi_resumen_activos")
       ),
       origenes_resumen_kpi(
         "Citas nuevas realizadas",
         nxtgen_fmt_num(k$citas_nuevas),
-        paste0(nxtgen_fmt_num(k$citas_agendadas), " agendadas en el canal")
+        paste0(nxtgen_fmt_num(k$citas_agendadas), " agendadas"),
+        id = paste0(prefix, "_kpi_resumen_citas_nuevas")
       ),
       origenes_resumen_kpi(
         "Cierres",
         nxtgen_fmt_num(k$cierres),
-        paste0(nxtgen_fmt_pct(k$conv_cita_cierre), " conversión cita realizada → venta")
+        paste0(nxtgen_fmt_pct(k$conv_cita_cierre), " conversión cita→venta"),
+        id = paste0(prefix, "_kpi_resumen_cierres")
       ),
       origenes_resumen_kpi(
         "Unidades vendidas",
         nxtgen_fmt_num(k$unidades),
-        "operaciones firmadas del canal"
+        "firmadas del canal",
+        id = paste0(prefix, "_kpi_resumen_unidades")
       ),
       origenes_resumen_kpi(
         "Facturación",
         origenes_money(k$facturacion, compact = TRUE),
-        "valor acumulado firmado"
+        "valor acumulado firmado",
+        id = paste0(prefix, "_kpi_resumen_facturacion")
       )
     )
   )
+}
+
+#' Cablea insights + drills (modales) + tablas de un origen (nxtgen | brokers).
+#' Las tablas de abajo siempre reflejan solo el filtro de fechas; el detalle
+#' de KPIs/gráficas se abre en modal.
+origenes_bind_origin_server <- function(prefix,
+                                        input,
+                                        output,
+                                        session,
+                                        resumen_reactive,
+                                        resumen_charts_reactive = NULL,
+                                        citas_reactive,
+                                        citas_charts_reactive = NULL,
+                                        ventas_reactive,
+                                        ventas_charts_reactive = NULL,
+                                        date_range_reactive,
+                                        include_postgrad = FALSE) {
+  channel_title <- if (identical(prefix, "brokers")) "Brokers" else "NxtGen"
+  # Gráficas con ventana fija (últimos 6 meses); tablas/KPIs usan el filtro de fechas.
+  if (is.null(resumen_charts_reactive)) {
+    resumen_charts_reactive <- resumen_reactive
+  }
+  if (is.null(citas_charts_reactive)) {
+    citas_charts_reactive <- citas_reactive
+  }
+  if (is.null(ventas_charts_reactive)) {
+    ventas_charts_reactive <- ventas_reactive
+  }
+
+  # --- Headers / KPIs ------------------------------------------------------
+  output[[paste0(prefix, "_citas_header")]] <- shiny::renderUI({
+    full <- citas_reactive()
+    dr <- date_range_reactive()
+    origenes_period_header_ui(
+      "CITAS",
+      origenes_format_date_range_label(dr$start, dr$end),
+      paste(nrow(full), "filas")
+    )
+  })
+
+  output[[paste0(prefix, "_ventas_header")]] <- shiny::renderUI({
+    full <- ventas_reactive()
+    dr <- date_range_reactive()
+    origenes_period_header_ui(
+      "VENTAS",
+      origenes_format_date_range_label(dr$start, dr$end),
+      paste(nrow(full), "filas")
+    )
+  })
+
+  output[[paste0(prefix, "_citas_kpis")]] <- shiny::renderUI({
+    origenes_citas_kpis_ui(origenes_citas_kpis(citas_reactive()), prefix)
+  })
+  output[[paste0(prefix, "_ventas_kpis")]] <- shiny::renderUI({
+    origenes_ventas_kpis_ui(origenes_ventas_kpis(ventas_reactive()), prefix)
+  })
+
+  # --- Citas charts --------------------------------------------------------
+  src_est <- paste0(prefix, "_citas_estatus")
+  src_emb <- paste0(prefix, "_citas_emb")
+
+  output[[paste0(prefix, "_citas_chart_estatus")]] <- plotly::renderPlotly({
+    # Gen Cita: últimos 6 meses (no el filtro corto de tablas).
+    origenes_citas_chart_estatus(citas_charts_reactive(), source = src_est)
+  })
+  output[[paste0(prefix, "_citas_chart_emb")]] <- plotly::renderPlotly({
+    origenes_citas_chart_embajadores(citas_reactive(), source = src_emb)
+  })
+  output[[paste0(prefix, "_citas_primera_progress")]] <- shiny::renderUI({
+    origenes_citas_primera_progress_ui(citas_reactive(), prefix)
+  })
+  if (include_postgrad) {
+    output[[paste0(prefix, "_citas_postgrad_progress")]] <- shiny::renderUI({
+      origenes_citas_postgrad_progress_ui(citas_reactive(), prefix)
+    })
+  }
+
+  shiny::observeEvent(plotly::event_data("plotly_click", source = src_est), {
+    ed <- origenes_parse_click_key(plotly::event_data("plotly_click", source = src_est))
+    if (is.null(ed)) {
+      return()
+    }
+    gen <- ed$x
+    est <- ed$key
+    rules <- list()
+    bits <- character()
+    if (!is.na(gen) && nzchar(gen)) {
+      rules <- c(rules, list(list(field = "Gen Cita", value = gen)))
+      bits <- c(bits, paste("Gen", gen))
+    }
+    if (!is.na(est) && nzchar(est)) {
+      rules <- c(rules, list(list(field = "Estatus", value = est)))
+      bits <- c(bits, est)
+    }
+    origenes_citas_open_drill(
+      citas_charts_reactive(),
+      rules,
+      paste(bits, collapse = " · "),
+      session = session
+    )
+  }, ignoreInit = TRUE)
+
+  shiny::observeEvent(plotly::event_data("plotly_click", source = src_emb), {
+    ed <- origenes_parse_click_key(plotly::event_data("plotly_click", source = src_emb))
+    if (is.null(ed)) {
+      return()
+    }
+    emb <- ed$key
+    if (is.na(emb) || !nzchar(emb)) {
+      emb <- ed$y
+    }
+    field <- if ("Embajador Registrado" %in% names(citas_reactive())) {
+      "Embajador Registrado"
+    } else {
+      "Embajador"
+    }
+    origenes_citas_open_drill(
+      citas_reactive(),
+      list(list(field = field, value = emb)),
+      paste("Embajador:", emb),
+      session = session
+    )
+  }, ignoreInit = TRUE)
+
+  shiny::observeEvent(input[[paste0(prefix, "_primera_si")]], {
+    origenes_citas_open_drill(
+      citas_reactive(),
+      list(list(field = "Primera Cita", value = "si")),
+      "Primera cita: Sí",
+      session = session
+    )
+  }, ignoreInit = TRUE)
+
+  shiny::observeEvent(input[[paste0(prefix, "_primera_no")]], {
+    origenes_citas_open_drill(
+      citas_reactive(),
+      list(list(field = "Primera Cita", value = "no")),
+      "Primera cita: No",
+      session = session
+    )
+  }, ignoreInit = TRUE)
+
+  if (include_postgrad) {
+    shiny::observeEvent(input[[paste0(prefix, "_postgrad_si")]], {
+      origenes_citas_open_drill(
+        citas_reactive(),
+        list(list(field = "¿Fue Post Graduación?", value = "si")),
+        "Post graduación: Sí",
+      session = session
+    )
+    }, ignoreInit = TRUE)
+
+    shiny::observeEvent(input[[paste0(prefix, "_postgrad_no")]], {
+      origenes_citas_open_drill(
+        citas_reactive(),
+        list(list(field = "¿Fue Post Graduación?", value = "no")),
+        "Post graduación: No",
+      session = session
+    )
+    }, ignoreInit = TRUE)
+  }
+
+  # --- Citas KPI card drills -----------------------------------------------
+  shiny::observeEvent(input[[paste0(prefix, "_kpi_citas_total")]], {
+    origenes_citas_open_drill(citas_reactive(), list(), "Todas las citas", session = session)
+  }, ignoreInit = TRUE)
+
+  shiny::observeEvent(input[[paste0(prefix, "_kpi_citas_realizadas")]], {
+    origenes_citas_open_drill(
+      citas_reactive(),
+      list(list(field = "Estatus", value = "Realizada")),
+      "Estatus: Realizada",
+      session = session
+    )
+  }, ignoreInit = TRUE)
+
+  shiny::observeEvent(input[[paste0(prefix, "_kpi_citas_primera")]], {
+    origenes_citas_open_drill(
+      citas_reactive(),
+      list(list(field = "Primera Cita", value = "si")),
+      "Primera cita: Sí",
+      session = session
+    )
+  }, ignoreInit = TRUE)
+
+  shiny::observeEvent(input[[paste0(prefix, "_kpi_citas_top_emb")]], {
+    k <- origenes_citas_kpis(citas_reactive())
+    field <- k$emb_col %||% "Embajador Registrado"
+    origenes_citas_open_drill(
+      citas_reactive(),
+      list(list(field = field, value = k$top_embajador)),
+      paste("Embajador:", k$top_embajador),
+      session = session
+    )
+  }, ignoreInit = TRUE)
+
+  if (include_postgrad) {
+    shiny::observeEvent(input[[paste0(prefix, "_kpi_citas_postgrad")]], {
+      origenes_citas_open_drill(
+        citas_reactive(),
+        list(list(field = "¿Fue Post Graduación?", value = "si")),
+        "Post graduación: Sí",
+      session = session
+    )
+    }, ignoreInit = TRUE)
+  }
+
+  # --- Ventas charts -------------------------------------------------------
+  src_proy <- paste0(prefix, "_ventas_proyecto")
+  src_gen <- paste0(prefix, "_ventas_gen")
+  src_ciclo <- paste0(prefix, "_ventas_ciclo")
+  src_vend <- paste0(prefix, "_ventas_vendedor")
+
+  output[[paste0(prefix, "_ventas_chart_proyecto")]] <- plotly::renderPlotly({
+    origenes_ventas_chart_proyecto(ventas_reactive(), source = src_proy)
+  })
+  output[[paste0(prefix, "_ventas_chart_gen")]] <- plotly::renderPlotly({
+    # Gen Venta: últimos 6 meses (no el filtro corto de tablas).
+    origenes_ventas_chart_gen(ventas_charts_reactive(), source = src_gen)
+  })
+  output[[paste0(prefix, "_ventas_chart_ciclo")]] <- plotly::renderPlotly({
+    origenes_ventas_chart_ciclo(ventas_reactive(), source = src_ciclo)
+  })
+  output[[paste0(prefix, "_ventas_chart_vendedor")]] <- plotly::renderPlotly({
+    origenes_ventas_chart_vendedor(ventas_reactive(), source = src_vend)
+  })
+
+  shiny::observeEvent(plotly::event_data("plotly_click", source = src_proy), {
+    ed <- origenes_parse_click_key(plotly::event_data("plotly_click", source = src_proy))
+    if (is.null(ed)) {
+      return()
+    }
+    val <- ed$key
+    if (is.na(val) || !nzchar(val)) {
+      val <- ed$y
+    }
+    origenes_ventas_open_drill(
+      ventas_reactive(),
+      list(list(field = "Proyecto", value = val)),
+      paste("Proyecto:", val),
+      channel_title,
+      session = session
+    )
+  }, ignoreInit = TRUE)
+
+  shiny::observeEvent(plotly::event_data("plotly_click", source = src_gen), {
+    ed <- origenes_parse_click_key(plotly::event_data("plotly_click", source = src_gen))
+    if (is.null(ed)) {
+      return()
+    }
+    val <- ed$key
+    if (is.na(val) || !nzchar(val)) {
+      val <- ed$x
+    }
+    origenes_ventas_open_drill(
+      ventas_charts_reactive(),
+      list(list(field = "Gen Venta", value = val)),
+      paste("Gen Venta:", val),
+      channel_title,
+      session = session
+    )
+  }, ignoreInit = TRUE)
+
+  shiny::observeEvent(plotly::event_data("plotly_click", source = src_ciclo), {
+    ed <- origenes_parse_click_key(plotly::event_data("plotly_click", source = src_ciclo))
+    if (is.null(ed)) {
+      return()
+    }
+    val <- ed$key
+    if (is.na(val) || !nzchar(val)) {
+      val <- ed$x
+    }
+    origenes_ventas_open_drill(
+      ventas_reactive(),
+      list(list(field = ".ciclo_bucket", value = val)),
+      paste("Ciclo:", val),
+      channel_title,
+      session = session
+    )
+  }, ignoreInit = TRUE)
+
+  shiny::observeEvent(plotly::event_data("plotly_click", source = src_vend), {
+    ed <- origenes_parse_click_key(plotly::event_data("plotly_click", source = src_vend))
+    if (is.null(ed)) {
+      return()
+    }
+    val <- ed$key
+    if (is.na(val) || !nzchar(val)) {
+      val <- ed$y
+    }
+    origenes_ventas_open_drill(
+      ventas_reactive(),
+      list(list(field = "Vendedor", value = val)),
+      paste("Vendedor:", val),
+      channel_title,
+      session = session
+    )
+  }, ignoreInit = TRUE)
+
+  # --- Ventas KPI card drills ----------------------------------------------
+  shiny::observeEvent(input[[paste0(prefix, "_kpi_ventas_ops")]], {
+    origenes_ventas_open_drill(ventas_reactive(), list(), "Operaciones", channel_title, session = session)
+  }, ignoreInit = TRUE)
+  shiny::observeEvent(input[[paste0(prefix, "_kpi_ventas_fact")]], {
+    origenes_ventas_open_drill(ventas_reactive(), list(), "Facturación", channel_title, session = session)
+  }, ignoreInit = TRUE)
+  shiny::observeEvent(input[[paste0(prefix, "_kpi_ventas_ticket")]], {
+    origenes_ventas_open_drill(ventas_reactive(), list(), "Ticket", channel_title, session = session)
+  }, ignoreInit = TRUE)
+  shiny::observeEvent(input[[paste0(prefix, "_kpi_ventas_ciclo")]], {
+    k <- origenes_ventas_kpis(ventas_reactive())
+    if (!is.finite(k$ciclo_med)) {
+      return()
+    }
+    med <- k$ciclo_med
+    bucket <- dplyr::case_when(
+      med <= 7 ~ "0-7 d",
+      med <= 14 ~ "8-14 d",
+      med <= 30 ~ "15-30 d",
+      med <= 60 ~ "31-60 d",
+      med <= 90 ~ "61-90 d",
+      TRUE ~ "90+ d"
+    )
+    origenes_ventas_open_drill(
+      ventas_reactive(),
+      list(list(field = ".ciclo_bucket", value = bucket)),
+      paste("Ciclo:", bucket),
+      channel_title,
+      session = session
+    )
+  }, ignoreInit = TRUE)
+
+  # --- Resumen charts (últimos 6 meses) ------------------------------------
+  series <- shiny::reactive({
+    origenes_resumen_series_from_tables(resumen_charts_reactive())
+  })
+
+  src_series <- paste0(prefix, "_resumen_series")
+  src_conv <- paste0(prefix, "_resumen_conv")
+
+  output[[paste0(prefix, "_resumen_chart_series")]] <- plotly::renderPlotly({
+    metrics <- input[[paste0(prefix, "_resumen_series_metrics")]]
+    if (is.null(metrics) || !length(metrics)) {
+      metrics <- origenes_resumen_series_defaults()
+    }
+    origenes_resumen_chart_series(
+      series(),
+      source = src_series,
+      metrics = metrics
+    )
+  })
+  output[[paste0(prefix, "_resumen_chart_conv")]] <- plotly::renderPlotly({
+    origenes_resumen_chart_conversiones(series(), source = src_conv)
+  })
+
+  open_resumen_period_drill <- function(period) {
+    if (is.na(period) || !nzchar(period)) {
+      return()
+    }
+    drill <- list(
+      rules = list(list(field = "periodo", value = period)),
+      label = paste("Periodo:", period)
+    )
+    origenes_resumen_drill_show_modal(
+      paste(channel_title, "·", period),
+      resumen_charts_reactive(),
+      drill,
+      session = session
+    )
+  }
+
+  open_resumen_metric_drill <- function(patterns, label) {
+    rules <- lapply(patterns, function(p) list(field = "metrica", value = p))
+    drill <- list(rules = rules, label = label)
+    origenes_resumen_drill_show_modal(paste(channel_title, "·", label), resumen_reactive(), drill, session = session)
+  }
+
+  shiny::observeEvent(plotly::event_data("plotly_click", source = src_series), {
+    ed <- origenes_parse_click_key(plotly::event_data("plotly_click", source = src_series))
+    if (is.null(ed)) {
+      return()
+    }
+    period <- ed$key
+    if (is.na(period) || !nzchar(period)) {
+      period <- ed$x
+    }
+    open_resumen_period_drill(period)
+  }, ignoreInit = TRUE)
+
+  shiny::observeEvent(plotly::event_data("plotly_click", source = src_conv), {
+    ed <- origenes_parse_click_key(plotly::event_data("plotly_click", source = src_conv))
+    if (is.null(ed)) {
+      return()
+    }
+    period <- ed$key
+    if (is.na(period) || !nzchar(period)) {
+      period <- ed$x
+    }
+    open_resumen_period_drill(period)
+  }, ignoreInit = TRUE)
+
+  # --- Resumen KPI card drills ---------------------------------------------
+  shiny::observeEvent(input[[paste0(prefix, "_kpi_resumen_registrados")]], {
+    open_resumen_metric_drill(
+      c("^Registrados$", "Cita agendada", "Primera cita", "Conversión primera"),
+      "Embajadores registrados"
+    )
+  }, ignoreInit = TRUE)
+
+  shiny::observeEvent(input[[paste0(prefix, "_kpi_resumen_activos")]], {
+    open_resumen_metric_drill(
+      c("^Activos", "Conversión activo"),
+      "Embajadores activos"
+    )
+  }, ignoreInit = TRUE)
+
+  shiny::observeEvent(input[[paste0(prefix, "_kpi_resumen_citas_nuevas")]], {
+    origenes_citas_open_drill(
+      citas_reactive(),
+      list(
+        list(field = "Primera Cita", value = "si"),
+        list(field = "Estatus", value = "Realizada")
+      ),
+      "Primera cita realizada",
+      session = session
+    )
+  }, ignoreInit = TRUE)
+
+  shiny::observeEvent(input[[paste0(prefix, "_kpi_resumen_cierres")]], {
+    origenes_ventas_drill_show_modal(
+      title = channel_title,
+      tbl = ventas_reactive(),
+      metric_lbl = "Cierres",
+      session = session
+    )
+  }, ignoreInit = TRUE)
+
+  shiny::observeEvent(input[[paste0(prefix, "_kpi_resumen_unidades")]], {
+    origenes_ventas_drill_show_modal(
+      title = channel_title,
+      tbl = ventas_reactive(),
+      metric_lbl = "Unidades",
+      session = session
+    )
+  }, ignoreInit = TRUE)
+
+  shiny::observeEvent(input[[paste0(prefix, "_kpi_resumen_facturacion")]], {
+    origenes_ventas_drill_show_modal(
+      title = channel_title,
+      tbl = ventas_reactive(),
+      metric_lbl = "Facturación",
+      session = session
+    )
+  }, ignoreInit = TRUE)
+
+  # --- Tables (siempre periodo del filtro de fechas) -----------------------
+  output[[paste0(prefix, "_tbl_citas")]] <- DT::renderDT({
+    origenes_datatable(citas_reactive(), style = "detail")
+  }, server = FALSE)
+
+  output[[paste0(prefix, "_tbl_ventas")]] <- reactable::renderReactable({
+    origenes_ventas_cierre_reactable(ventas_reactive())
+  })
+
+  output[[paste0(prefix, "_tbl_embajadores")]] <- DT::renderDT({
+    bundle <- resumen_reactive()
+    shiny::req(bundle)
+    origenes_datatable(bundle$tabla_embajadores, style = "metric")
+  }, server = FALSE)
+
+  output[[paste0(prefix, "_tbl_resultados")]] <- DT::renderDT({
+    bundle <- resumen_reactive()
+    shiny::req(bundle)
+    origenes_datatable(bundle$tabla_resultados, style = "metric")
+  }, server = FALSE)
+
+  output[[paste0(prefix, "_tbl_conversion")]] <- DT::renderDT({
+    bundle <- resumen_reactive()
+    shiny::req(bundle)
+    origenes_datatable(bundle$tabla_conversion, style = "metric")
+  }, server = FALSE)
+
+  invisible(NULL)
 }
 
 origenes_server <- function(input, output, session) {
@@ -153,6 +647,29 @@ origenes_server <- function(input, output, session) {
     )
   })
 
+  # Gráficas Resumen: siempre últimos 6 meses (misma granularidad del filtro).
+  nxtgen_resumen_charts <- shiny::reactive({
+    dr <- origenes_chart_date_range(n_months = 6L)
+    origenes_resumen_bundle(
+      joined(),
+      "nxtgen",
+      start = dr$start,
+      end = dr$end,
+      granularity = nxtgen_granularity()
+    )
+  })
+
+  brokers_resumen_charts <- shiny::reactive({
+    dr <- origenes_chart_date_range(n_months = 6L)
+    origenes_resumen_bundle(
+      joined(),
+      "broker",
+      start = dr$start,
+      end = dr$end,
+      granularity = brokers_granularity()
+    )
+  })
+
   nxtgen_ventas <- shiny::reactive({
     dr <- nxtgen_date_range()
     origenes_ventas_table(
@@ -165,6 +682,27 @@ origenes_server <- function(input, output, session) {
 
   brokers_ventas <- shiny::reactive({
     dr <- brokers_date_range()
+    origenes_ventas_table(
+      "broker",
+      start = dr$start,
+      end = dr$end,
+      rscg = rscg_bundle()
+    )
+  })
+
+  # Gen Venta / Estatus×gen: últimos 6 meses.
+  nxtgen_ventas_charts <- shiny::reactive({
+    dr <- origenes_chart_date_range(n_months = 6L)
+    origenes_ventas_table(
+      "nxtgen",
+      start = dr$start,
+      end = dr$end,
+      rscg = rscg_bundle()
+    )
+  })
+
+  brokers_ventas_charts <- shiny::reactive({
+    dr <- origenes_chart_date_range(n_months = 6L)
     origenes_ventas_table(
       "broker",
       start = dr$start,
@@ -195,109 +733,78 @@ origenes_server <- function(input, output, session) {
     )
   })
 
+  nxtgen_citas_charts <- shiny::reactive({
+    dr <- origenes_chart_date_range(n_months = 6L)
+    origenes_citas_table(
+      "nxtgen",
+      start = dr$start,
+      end = dr$end,
+      rscg = rscg_bundle(),
+      joined = joined()
+    )
+  })
+
+  brokers_citas_charts <- shiny::reactive({
+    dr <- origenes_chart_date_range(n_months = 6L)
+    origenes_citas_table(
+      "broker",
+      start = dr$start,
+      end = dr$end,
+      rscg = rscg_bundle(),
+      joined = joined()
+    )
+  })
+
   output$nxtgen_resumen_header <- shiny::renderUI({
-    origenes_resumen_header_ui(nxtgen_resumen())
+    origenes_resumen_header_ui(nxtgen_resumen(), "nxtgen")
   })
   output$brokers_resumen_header <- shiny::renderUI({
-    origenes_resumen_header_ui(brokers_resumen())
+    origenes_resumen_header_ui(brokers_resumen(), "brokers")
   })
 
-  output$nxtgen_citas_header <- shiny::renderUI({
-    tbl <- nxtgen_citas()
-    dr <- nxtgen_date_range()
-    origenes_period_header_ui(
-      "CITAS",
-      origenes_format_date_range_label(dr$start, dr$end),
-      paste(nrow(tbl), "filas")
-    )
-  })
-  output$nxtgen_ventas_header <- shiny::renderUI({
-    tbl <- nxtgen_ventas()
-    dr <- nxtgen_date_range()
-    origenes_period_header_ui(
-      "VENTAS",
-      origenes_format_date_range_label(dr$start, dr$end),
-      paste(nrow(tbl), "filas")
-    )
-  })
-  output$brokers_citas_header <- shiny::renderUI({
-    tbl <- brokers_citas()
-    dr <- brokers_date_range()
-    origenes_period_header_ui(
-      "CITAS",
-      origenes_format_date_range_label(dr$start, dr$end),
-      paste(nrow(tbl), "filas")
-    )
-  })
-  output$brokers_ventas_header <- shiny::renderUI({
-    tbl <- brokers_ventas()
-    dr <- brokers_date_range()
-    origenes_period_header_ui(
-      "VENTAS",
-      origenes_format_date_range_label(dr$start, dr$end),
-      paste(nrow(tbl), "filas")
-    )
-  })
+  origenes_bind_origin_server(
+    prefix = "nxtgen",
+    input = input,
+    output = output,
+    session = session,
+    resumen_reactive = nxtgen_resumen,
+    resumen_charts_reactive = nxtgen_resumen_charts,
+    citas_reactive = nxtgen_citas,
+    citas_charts_reactive = nxtgen_citas_charts,
+    ventas_reactive = nxtgen_ventas,
+    ventas_charts_reactive = nxtgen_ventas_charts,
+    date_range_reactive = nxtgen_date_range,
+    include_postgrad = FALSE
+  )
 
-  # DTOutput estático en UI → renderDT (evita widgets rotos dentro de renderUI).
-  output$nxtgen_tbl_embajadores <- DT::renderDT({
-    bundle <- nxtgen_resumen()
-    shiny::req(bundle)
-    origenes_datatable(bundle$tabla_embajadores, style = "metric")
-  }, server = FALSE)
+  origenes_bind_origin_server(
+    prefix = "brokers",
+    input = input,
+    output = output,
+    session = session,
+    resumen_reactive = brokers_resumen,
+    resumen_charts_reactive = brokers_resumen_charts,
+    citas_reactive = brokers_citas,
+    citas_charts_reactive = brokers_citas_charts,
+    ventas_reactive = brokers_ventas,
+    ventas_charts_reactive = brokers_ventas_charts,
+    date_range_reactive = brokers_date_range,
+    include_postgrad = TRUE
+  )
 
-  output$nxtgen_tbl_resultados <- DT::renderDT({
-    bundle <- nxtgen_resumen()
-    shiny::req(bundle)
-    origenes_datatable(bundle$tabla_resultados, style = "metric")
-  }, server = FALSE)
-
-  output$nxtgen_tbl_conversion <- DT::renderDT({
-    bundle <- nxtgen_resumen()
-    shiny::req(bundle)
-    origenes_datatable(bundle$tabla_conversion, style = "metric")
-  }, server = FALSE)
-
-  output$brokers_tbl_embajadores <- DT::renderDT({
-    bundle <- brokers_resumen()
-    shiny::req(bundle)
-    origenes_datatable(bundle$tabla_embajadores, style = "metric")
-  }, server = FALSE)
-
-  output$brokers_tbl_resultados <- DT::renderDT({
-    bundle <- brokers_resumen()
-    shiny::req(bundle)
-    origenes_datatable(bundle$tabla_resultados, style = "metric")
-  }, server = FALSE)
-
-  output$brokers_tbl_conversion <- DT::renderDT({
-    bundle <- brokers_resumen()
-    shiny::req(bundle)
-    origenes_datatable(bundle$tabla_conversion, style = "metric")
-  }, server = FALSE)
-
-  output$nxtgen_tbl_ventas <- DT::renderDT({
-    origenes_datatable(nxtgen_ventas(), style = "detail")
-  }, server = FALSE)
-
-  output$brokers_tbl_ventas <- DT::renderDT({
-    origenes_datatable(brokers_ventas(), style = "detail")
-  }, server = FALSE)
-
-  output$nxtgen_tbl_citas <- DT::renderDT({
-    origenes_datatable(nxtgen_citas(), style = "detail")
-  }, server = FALSE)
-
-  output$brokers_tbl_citas <- DT::renderDT({
-    origenes_datatable(brokers_citas(), style = "detail")
-  }, server = FALSE)
-
-  # Renderizar aunque la pestaña esté oculta (bslib/nav).
   for (id in c(
     "nxtgen_tbl_embajadores", "nxtgen_tbl_resultados", "nxtgen_tbl_conversion",
     "nxtgen_tbl_citas", "nxtgen_tbl_ventas",
+    "nxtgen_citas_chart_estatus", "nxtgen_citas_chart_emb",
+    "nxtgen_ventas_chart_proyecto", "nxtgen_ventas_chart_gen",
+    "nxtgen_ventas_chart_ciclo", "nxtgen_ventas_chart_vendedor",
+    "nxtgen_resumen_chart_series", "nxtgen_resumen_chart_conv",
     "brokers_tbl_embajadores", "brokers_tbl_resultados", "brokers_tbl_conversion",
-    "brokers_tbl_citas", "brokers_tbl_ventas"
+    "brokers_tbl_citas", "brokers_tbl_ventas",
+    "brokers_citas_chart_estatus", "brokers_citas_chart_emb",
+    "brokers_ventas_chart_proyecto", "brokers_ventas_chart_gen",
+    "brokers_ventas_chart_ciclo", "brokers_ventas_chart_vendedor",
+    "brokers_resumen_chart_series", "brokers_resumen_chart_conv"
   )) {
     shiny::outputOptions(output, id, suspendWhenHidden = FALSE)
   }

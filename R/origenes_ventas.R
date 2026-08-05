@@ -193,6 +193,7 @@ origenes_ventas_table <- function(origin_key,
     ) |>
     dplyr::arrange(dplyr::desc(.data$fecha_firma), .data$cliente, .data$id_propiedad) |>
     dplyr::transmute(
+      .sale_id = .data$sale_id,
       `Fecha de firma` = origenes_fmt_date_sheets(.data$fecha_firma),
       `Nombre de cliente` = .data$cliente,
       `Telefono de cliente` = .data$telefono,
@@ -219,6 +220,7 @@ origenes_ventas_table <- function(origin_key,
 
 origenes_ventas_empty <- function() {
   tibble::tibble(
+    .sale_id = character(),
     `Fecha de firma` = character(),
     `Nombre de cliente` = character(),
     `Telefono de cliente` = character(),
@@ -239,4 +241,12 @@ origenes_ventas_empty <- function() {
     `Gen Cita` = character(),
     `Ciclo Venta` = integer()
   )
+}
+
+#' Columnas visibles de la tabla Sheets (oculta .sale_id).
+origenes_ventas_display_cols <- function(tbl) {
+  if (is.null(tbl) || !is.data.frame(tbl)) {
+    return(tbl)
+  }
+  tbl[, !grepl("^\\.", names(tbl)), drop = FALSE]
 }

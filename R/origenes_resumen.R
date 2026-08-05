@@ -488,12 +488,26 @@ origenes_resumen_kpis <- function(prep, start = NULL, end = NULL) {
   )
 }
 
-#' Rango por defecto del filtro (estilo IBR): lo que va del año en curso.
-#' En 2026 → 01/01/2026 → hoy.
+#' Rango por defecto del filtro: mes en curso (día 1 → hoy).
 origenes_default_date_range <- function(as_of = Sys.Date()) {
   as_of <- as.Date(as_of)
-  start <- as.Date(paste0(format(as_of, "%Y"), "-01-01"))
+  start <- as.Date(format(as_of, "%Y-%m-01"))
   end <- as_of
+  if (end < start) {
+    end <- start
+  }
+  list(start = start, end = end)
+}
+
+#' Ventana fija para gráficas de Resumen: últimos N meses calendario (incl. mes actual).
+#' Ej. hoy 2026-08-05 y N=6 → 2026-03-01 → 2026-08-05.
+origenes_chart_date_range <- function(as_of = Sys.Date(), n_months = 6L) {
+  as_of <- as.Date(as_of)
+  n_months <- max(1L, as.integer(n_months))
+  end <- as_of
+  month_start <- as.Date(format(as_of, "%Y-%m-01"))
+  start <- seq(month_start, by = paste0("-", n_months - 1L, " months"), length.out = 2L)[[2]]
+  start <- as.Date(start)
   if (end < start) {
     end <- start
   }

@@ -57,7 +57,6 @@ origenes_home_ui <- function() {
           type = "button",
           onclick = "document.querySelector('[data-value=\"nxtgen\"]').click();",
           shiny::span(class = "or-origin-card__number", "01"),
-          shiny::span(class = "or-origin-card__status", "DISPONIBLE"),
           shiny::span(class = "or-origin-card__title", "NxtGen"),
           shiny::span(class = "or-origin-card__arrow", "↗")
         ),
@@ -67,7 +66,6 @@ origenes_home_ui <- function() {
           type = "button",
           onclick = "document.querySelector('[data-value=\"brokers\"]').click();",
           shiny::span(class = "or-origin-card__number", "02"),
-          shiny::span(class = "or-origin-card__status", "DISPONIBLE"),
           shiny::span(class = "or-origin-card__title", "Brokers"),
           shiny::span(class = "or-origin-card__arrow", "↗")
         )
@@ -91,12 +89,27 @@ origenes_filter_bar <- function(...) {
   )
 }
 
-origenes_resumen_kpi <- function(label, value, note = NULL, accent = FALSE) {
-  shiny::div(
-    class = paste("or-resumen-kpi", if (accent) "or-resumen-kpi--accent" else NULL),
+origenes_resumen_kpi <- function(label, value, note = NULL, accent = FALSE, id = NULL) {
+  body <- list(
     shiny::span(class = "or-resumen-kpi__label", label),
     shiny::span(class = "or-resumen-kpi__value", value),
     if (!is.null(note)) shiny::span(class = "or-resumen-kpi__note", note)
+  )
+  if (is.null(id)) {
+    return(shiny::div(
+      class = paste("or-resumen-kpi", if (accent) "or-resumen-kpi--accent" else NULL),
+      body
+    ))
+  }
+  shiny::tags$button(
+    id = id,
+    class = paste(
+      "action-button or-resumen-kpi or-resumen-kpi--clickable",
+      if (accent) "or-resumen-kpi--accent" else NULL
+    ),
+    type = "button",
+    title = "Clic para ver el detalle",
+    body
   )
 }
 
@@ -212,10 +225,35 @@ origenes_origin_shell <- function(kicker, title, filter_prefix, subtab_id, panel
   )
 }
 
-origenes_detail_panel_shell <- function(kind_label, title, meta, header_id, table_id) {
+origenes_detail_panel_shell <- function(kind_label,
+                                        title,
+                                        meta,
+                                        header_id,
+                                        table_id,
+                                        insights_ui = NULL,
+                                        table_kind = c("dt", "ventas_cierre")) {
+  table_kind <- match.arg(table_kind)
+  table_wrap <- if (identical(table_kind, "ventas_cierre")) {
+    shiny::tagList(
+      shiny::tags$p(
+        class = "or-drill-modal-hint or-ventas-table-hint",
+        "Cada bloque con borde agrupa las unidades del mismo cierre (misma venta)."
+      ),
+      shiny::div(
+        class = "or-metric-table-wrap or-ventas-table-wrap or-drill-reactable-wrap",
+        reactable::reactableOutput(table_id, width = "100%")
+      )
+    )
+  } else {
+    shiny::div(
+      class = "or-metric-table-wrap or-ventas-table-wrap",
+      DT::DTOutput(table_id, width = "100%")
+    )
+  }
   shiny::div(
     class = paste0("or-", tolower(kind_label)),
     shiny::uiOutput(header_id),
+    insights_ui,
     bslib::card(
       class = "or-card or-metric-card",
       bslib::card_header(
@@ -225,9 +263,100 @@ origenes_detail_panel_shell <- function(kind_label, title, meta, header_id, tabl
         ),
         shiny::span(class = "or-card__meta", meta)
       ),
-      shiny::div(
-        class = "or-metric-table-wrap or-ventas-table-wrap",
-        DT::DTOutput(table_id, width = "100%")
+      table_wrap
+    )
+  )
+}
+
+origenes_citas_insights_ui <- function(prefix, include_postgrad = FALSE) {
+  shiny::tagList(
+    shiny::uiOutput(paste0(prefix, "_citas_kpis")),
+    shiny::div(
+      class = "or-viz-grid or-viz-grid--2",
+      origenes_chart_card(
+        "Estatus por generación",
+        "Últimos 6 meses · clic para ver detalle",
+        plotly::plotlyOutput(paste0(prefix, "_citas_chart_estatus"), height = "290px")
+      ),
+      origenes_chart_card(
+        "Top embajadores",
+        "Por volumen de citas",
+        plotly::plotlyOutput(paste0(prefix, "_citas_chart_emb"), height = "290px")
+      )
+    ),
+    shiny::div(
+      class = if (include_postgrad) "or-viz-grid or-viz-grid--2" else "or-viz-grid or-viz-grid--1",
+      origenes_chart_card(
+        "Primera cita",
+        "% de citas que son la 1ª del prospecto · clic para ver detalle",
+        shiny::uiOutput(paste0(prefix, "_citas_primera_progress"))
+      ),
+      if (include_postgrad) {
+        origenes_chart_card(
+          "Post graduación",
+          "% de citas después de graduarse · clic para ver detalle",
+          shiny::uiOutput(paste0(prefix, "_citas_postgrad_progress"))
+        )
+      }
+    )
+  )
+}
+
+origenes_ventas_insights_ui <- function(prefix) {
+  shiny::tagList(
+    shiny::uiOutput(paste0(prefix, "_ventas_kpis")),
+    shiny::div(
+      class = "or-viz-grid or-viz-grid--2",
+      origenes_chart_card(
+        "Facturación por proyecto",
+        "Clic para ver detalle",
+        plotly::plotlyOutput(paste0(prefix, "_ventas_chart_proyecto"), height = "290px")
+      ),
+      origenes_chart_card(
+        "Gen Venta",
+        "Últimos 6 meses · unidades y facturación",
+        plotly::plotlyOutput(paste0(prefix, "_ventas_chart_gen"), height = "290px")
+      )
+    ),
+    shiny::div(
+      class = "or-viz-grid or-viz-grid--2",
+      origenes_chart_card(
+        "Ciclo de venta",
+        "Días entre primera cita y firma",
+        plotly::plotlyOutput(paste0(prefix, "_ventas_chart_ciclo"), height = "290px")
+      ),
+      origenes_chart_card(
+        "Top vendedores",
+        "Por facturación firmada",
+        plotly::plotlyOutput(paste0(prefix, "_ventas_chart_vendedor"), height = "290px")
+      )
+    )
+  )
+}
+
+origenes_resumen_insights_ui <- function(prefix) {
+  shiny::tagList(
+    shiny::div(
+      class = "or-viz-grid or-viz-grid--2",
+      origenes_chart_card(
+        "Evolución del canal",
+        NULL,
+        shiny::div(
+          class = "or-series-controls",
+          shiny::checkboxGroupInput(
+            paste0(prefix, "_resumen_series_metrics"),
+            label = NULL,
+            choices = origenes_resumen_series_choices(),
+            selected = origenes_resumen_series_defaults(),
+            inline = TRUE
+          )
+        ),
+        plotly::plotlyOutput(paste0(prefix, "_resumen_chart_series"), height = "300px")
+      ),
+      origenes_chart_card(
+        "Conversiones por periodo",
+        NULL,
+        plotly::plotlyOutput(paste0(prefix, "_resumen_chart_conv"), height = "300px")
       )
     )
   )
@@ -244,6 +373,7 @@ origenes_nxtgen_ui <- function() {
         "Resumen",
         value = "resumen",
         shiny::uiOutput("nxtgen_resumen_header"),
+        origenes_resumen_insights_ui("nxtgen"),
         origenes_metric_table_ui(
           "Embajadores",
           "Cohorte por periodo de registro",
@@ -265,15 +395,18 @@ origenes_nxtgen_ui <- function() {
         value = "citas",
         origenes_detail_panel_shell(
           "CITAS", "Citas", "Bubble RSCG · Origin_OS del canal",
-          "nxtgen_citas_header", "nxtgen_tbl_citas"
+          "nxtgen_citas_header", "nxtgen_tbl_citas",
+          insights_ui = origenes_citas_insights_ui("nxtgen", include_postgrad = FALSE)
         )
       ),
       bslib::nav_panel(
         "Ventas",
         value = "ventas",
         origenes_detail_panel_shell(
-          "VENTAS", "Ventas", "Bubble RSCG · una fila por unidad",
-          "nxtgen_ventas_header", "nxtgen_tbl_ventas"
+          "VENTAS", "Ventas", "Bubble RSCG · una fila por unidad · agrupado por cierre",
+          "nxtgen_ventas_header", "nxtgen_tbl_ventas",
+          insights_ui = origenes_ventas_insights_ui("nxtgen"),
+          table_kind = "ventas_cierre"
         )
       )
     )
@@ -291,6 +424,7 @@ origenes_brokers_ui <- function() {
         "Resumen",
         value = "resumen",
         shiny::uiOutput("brokers_resumen_header"),
+        origenes_resumen_insights_ui("brokers"),
         origenes_metric_table_ui(
           "Conversión Embajadores",
           "Cohorte por periodo de registro",
@@ -312,15 +446,18 @@ origenes_brokers_ui <- function() {
         value = "citas",
         origenes_detail_panel_shell(
           "CITAS", "Citas", "Bubble RSCG · Origin_OS del canal",
-          "brokers_citas_header", "brokers_tbl_citas"
+          "brokers_citas_header", "brokers_tbl_citas",
+          insights_ui = origenes_citas_insights_ui("brokers", include_postgrad = TRUE)
         )
       ),
       bslib::nav_panel(
         "Ventas",
         value = "ventas",
         origenes_detail_panel_shell(
-          "VENTAS", "Ventas", "Bubble RSCG · una fila por unidad",
-          "brokers_ventas_header", "brokers_tbl_ventas"
+          "VENTAS", "Ventas", "Bubble RSCG · una fila por unidad · agrupado por cierre",
+          "brokers_ventas_header", "brokers_tbl_ventas",
+          insights_ui = origenes_ventas_insights_ui("brokers"),
+          table_kind = "ventas_cierre"
         )
       )
     )
@@ -336,7 +473,16 @@ origenes_ui <- function() {
     window_title = "Origin Analytics | División 2c",
     header = shiny::tags$head(
       shiny::tags$meta(name = "viewport", content = "width=device-width, initial-scale=1"),
-      shiny::tags$link(rel = "stylesheet", type = "text/css", href = "styles.css?v=22")
+      shiny::tags$link(rel = "stylesheet", type = "text/css", href = "styles.css?v=29"),
+      shiny::tags$script(htmltools::HTML(paste(
+        "Shiny.addCustomMessageHandler('origenes-htmlwidgets-static-render', function(message) {",
+        "  setTimeout(function() {",
+        "    if (window.HTMLWidgets && HTMLWidgets.staticRender) { HTMLWidgets.staticRender(); }",
+        "    window.dispatchEvent(new Event('resize'));",
+        "  }, 80);",
+        "});",
+        sep = "\n"
+      )))
     ),
     bslib::nav_panel("Inicio", value = "inicio", origenes_home_ui()),
     bslib::nav_panel(

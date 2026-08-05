@@ -7,6 +7,7 @@ Imports:
     shiny,
     bslib,
     DT,
+    reactable,
     dplyr,
     lubridate,
     ggplot2,
