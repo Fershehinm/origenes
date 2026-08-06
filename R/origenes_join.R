@@ -11,6 +11,20 @@
 #   - Registro / tipo de embajador / equipo hub: Embajadores
 #   - Enriquecimiento de cita hub: join (1)
 
+.origenes_data_cache <- new.env(parent = emptyenv())
+
+#' Cache en proceso para RDS/APIs pesadas (un load por worker de shinyapps).
+#' `producer` debe ser una función sin argumentos que devuelve el valor.
+origenes_data_cached <- function(key, producer) {
+  key <- as.character(key)
+  if (exists(key, envir = .origenes_data_cache, inherits = FALSE)) {
+    return(get(key, envir = .origenes_data_cache, inherits = FALSE))
+  }
+  val <- producer()
+  assign(key, val, envir = .origenes_data_cache)
+  val
+}
+
 origenes_id_norm <- function(x) {
   x <- trimws(as.character(x))
   x[is.na(x) | !nzchar(x)] <- NA_character_
@@ -22,56 +36,83 @@ origenes_origin_key <- function(x) {
 }
 
 origenes_load_rscg_bundle <- function(root = Sys.getenv("ORIGENES_APP_ROOT", ".")) {
-  path <- Sys.getenv("ORIGENES_VENDEDORES_BUNDLE", unset = "")
-  if (nzchar(path) && file.exists(path)) {
-    b <- readRDS(path)
-    attr(b, "source_path") <- normalizePath(path, winslash = "/", mustWork = FALSE)
-    attr(b, "source_label") <- "vendedores_bundle"
-    return(b)
-  }
-  cache <- file.path(root, "data", "cache", "latest.rds")
-  if (file.exists(cache)) {
-    b <- readRDS(cache)
-    attr(b, "source_path") <- normalizePath(cache, winslash = "/", mustWork = FALSE)
-    attr(b, "source_label") <- "origenes_cache"
-    return(b)
-  }
-  if (origenes_bubble_configured()) {
-    b <- origenes_bubble_fetch_bundle()
-    attr(b, "source_label") <- "bubble_live"
-    return(b)
-  }
-  stop(
-    "No hay bundle Bubble. Define ORIGENES_VENDEDORES_BUNDLE o BUBBLE_* / data/cache/latest.rds",
-    call. = FALSE
-  )
+  origenes_data_cached(paste0("rscg::", normalizePath(root, winslash = "/", mustWork = FALSE)), function() {
+    path <- Sys.getenv("ORIGENES_VENDEDORES_BUNDLE", unset = "")
+    if (nzchar(path) && file.exists(path)) {
+      b <- readRDS(path)
+      attr(b, "source_path") <- normalizePath(path, winslash = "/", mustWork = FALSE)
+      attr(b, "source_label") <- "vendedores_bundle"
+      return(b)
+    }
+    cache <- file.path(root, "data", "cache", "latest.rds")
+    if (file.exists(cache)) {
+      b <- readRDS(cache)
+      attr(b, "source_path") <- normalizePath(cache, winslash = "/", mustWork = FALSE)
+      attr(b, "source_label") <- "origenes_cache"
+      return(b)
+    }
+    if (origenes_bubble_configured()) {
+      b <- origenes_bubble_fetch_bundle()
+      attr(b, "source_label") <- "bubble_live"
+      return(b)
+    }
+    stop(
+      "No hay bundle Bubble. Define ORIGENES_VENDEDORES_BUNDLE o BUBBLE_* / data/cache/latest.rds",
+      call. = FALSE
+    )
+  })
 }
 
-origenes_load_ambassadors_raw <- function(root = Sys.getenv("ORIGENES_APP_ROOT", ".")) {
-  explore <- file.path(root, "data", "ambassadors", "explore")
-  contact_path <- file.path(explore, "contact.rds")
-  meeting_path <- file.path(explore, "meeting.rds")
-  team_path <- file.path(explore, "team.rds")
-
-  if (file.exists(contact_path) && file.exists(meeting_path)) {
-    out <- list(
-      contact = readRDS(contact_path),
-      meeting = readRDS(meeting_path),
-      team = if (file.exists(team_path)) readRDS(team_path) else tibble::tibble(),
-      source_label = "ambassadors_explore_cache"
-    )
-    attr(out, "source_path") <- normalizePath(explore, winslash = "/", mustWork = FALSE)
-    return(out)
+#' Resuelve .rds en explore/ sin depender de mayúsculas (macOS vs Linux shinyapps).
+origenes_explore_rds_path <- function(explore_dir, candidates) {
+  if (!dir.exists(explore_dir)) {
+    return(NULL)
   }
-
-  if (!ambassadors_configured()) {
-    stop("Falta data/ambassadors/explore o AMBASSADORS_* en .Renviron", call. = FALSE)
+  files <- list.files(explore_dir, pattern = "\\.rds$", full.names = TRUE, ignore.case = TRUE)
+  if (!length(files)) {
+    return(NULL)
   }
-  list(
-    contact = ambassadors_fetch_endpoint("contact"),
-    meeting = ambassadors_fetch_endpoint("meeting"),
-    team = ambassadors_fetch_endpoint("team"),
-    source_label = "ambassadors_live"
+  basenames <- tolower(basename(files))
+  for (cand in candidates) {
+    hit <- files[basenames == tolower(cand)]
+    if (length(hit)) {
+      return(hit[[1]])
+    }
+  }
+  NULL
+}
+
+origenes_load_ambassadors_raw <- function(root = Sys.getenv("ORIGENES_APP_ROOT", "."),
+                                          allow_live = TRUE) {
+  origenes_data_cached(
+    paste0("amb::", normalizePath(root, winslash = "/", mustWork = FALSE), "::", allow_live),
+    function() {
+      explore <- file.path(root, "data", "ambassadors", "explore")
+      contact_path <- origenes_explore_rds_path(explore, c("contact.rds", "Contact.rds"))
+      meeting_path <- origenes_explore_rds_path(explore, c("meeting.rds", "Meeting.rds"))
+      team_path <- origenes_explore_rds_path(explore, c("team.rds", "Team.rds"))
+
+      if (!is.null(contact_path) && !is.null(meeting_path)) {
+        out <- list(
+          contact = readRDS(contact_path),
+          meeting = readRDS(meeting_path),
+          team = if (!is.null(team_path)) readRDS(team_path) else tibble::tibble(),
+          source_label = "ambassadors_explore_cache"
+        )
+        attr(out, "source_path") <- normalizePath(explore, winslash = "/", mustWork = FALSE)
+        return(out)
+      }
+
+      if (!isTRUE(allow_live) || !ambassadors_configured()) {
+        stop("Falta data/ambassadors/explore (Contact.rds / Meeting.rds)", call. = FALSE)
+      }
+      list(
+        contact = ambassadors_fetch_endpoint("contact"),
+        meeting = ambassadors_fetch_endpoint("meeting"),
+        team = ambassadors_fetch_endpoint("team"),
+        source_label = "ambassadors_live"
+      )
+    }
   )
 }
 

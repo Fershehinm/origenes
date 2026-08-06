@@ -791,21 +791,4 @@ origenes_server <- function(input, output, session) {
     date_range_reactive = brokers_date_range,
     include_postgrad = TRUE
   )
-
-  for (id in c(
-    "nxtgen_tbl_embajadores", "nxtgen_tbl_resultados", "nxtgen_tbl_conversion",
-    "nxtgen_tbl_citas", "nxtgen_tbl_ventas",
-    "nxtgen_citas_chart_estatus", "nxtgen_citas_chart_emb",
-    "nxtgen_ventas_chart_proyecto", "nxtgen_ventas_chart_gen",
-    "nxtgen_ventas_chart_ciclo", "nxtgen_ventas_chart_vendedor",
-    "nxtgen_resumen_chart_series", "nxtgen_resumen_chart_conv",
-    "brokers_tbl_embajadores", "brokers_tbl_resultados", "brokers_tbl_conversion",
-    "brokers_tbl_citas", "brokers_tbl_ventas",
-    "brokers_citas_chart_estatus", "brokers_citas_chart_emb",
-    "brokers_ventas_chart_proyecto", "brokers_ventas_chart_gen",
-    "brokers_ventas_chart_ciclo", "brokers_ventas_chart_vendedor",
-    "brokers_resumen_chart_series", "brokers_resumen_chart_conv"
-  )) {
-    shiny::outputOptions(output, id, suspendWhenHidden = FALSE)
-  }
 }

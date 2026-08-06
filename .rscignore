@@ -6,3 +6,9 @@
 README.md
 env.example
 scripts/
+data/ambassadors/explore/*_sample50.csv
+data/ambassadors/explore/columns_summary.csv
+data/ambassadors/explore/object_catalog.csv
+data/ambassadors/explore/bundle_ok.rds
+data/audit/
+

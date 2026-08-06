@@ -27,31 +27,38 @@ origenes_fmt_date_sheets <- function(d) {
 }
 
 origenes_hub_contact_phone_email <- function(root = Sys.getenv("ORIGENES_APP_ROOT", ".")) {
-  amb <- tryCatch(origenes_load_ambassadors_raw(root), error = function(e) NULL)
-  if (is.null(amb) || is.null(amb$contact) || !nrow(amb$contact)) {
-    return(tibble::tibble(
+  # Solo cache local: no llamar API live (bloquea 30–120s en shinyapps).
+  origenes_data_cached(paste0("phones::", normalizePath(root, winslash = "/", mustWork = FALSE)), function() {
+    amb <- tryCatch(
+      origenes_load_ambassadors_raw(root, allow_live = FALSE),
+      error = function(e) NULL
+    )
+    empty <- tibble::tibble(
       client_contact_id = character(),
       telefono = character(),
       email = character()
-    ))
-  }
-  ctc <- amb$contact
-  tibble::tibble(
-    client_contact_id = origenes_id_norm(ctc$RSCG.Lead.ID),
-    telefono = stringr::str_squish(as.character(ctc$Phone %||% NA)),
-    email = stringr::str_squish(as.character(ctc$Email %||% NA))
-  ) |>
-    dplyr::filter(!is.na(.data$client_contact_id), nzchar(.data$client_contact_id)) |>
-    dplyr::mutate(
-      telefono = dplyr::na_if(.data$telefono, ""),
-      email = dplyr::na_if(.data$email, "")
-    ) |>
-    dplyr::group_by(.data$client_contact_id) |>
-    dplyr::summarise(
-      telefono = dplyr::coalesce(dplyr::first(stats::na.omit(.data$telefono)), NA_character_),
-      email = dplyr::coalesce(dplyr::first(stats::na.omit(.data$email)), NA_character_),
-      .groups = "drop"
     )
+    if (is.null(amb) || is.null(amb$contact) || !nrow(amb$contact)) {
+      return(empty)
+    }
+    ctc <- amb$contact
+    tibble::tibble(
+      client_contact_id = origenes_id_norm(ctc$RSCG.Lead.ID),
+      telefono = stringr::str_squish(as.character(ctc$Phone %||% NA)),
+      email = stringr::str_squish(as.character(ctc$Email %||% NA))
+    ) |>
+      dplyr::filter(!is.na(.data$client_contact_id), nzchar(.data$client_contact_id)) |>
+      dplyr::mutate(
+        telefono = dplyr::na_if(.data$telefono, ""),
+        email = dplyr::na_if(.data$email, "")
+      ) |>
+      dplyr::group_by(.data$client_contact_id) |>
+      dplyr::summarise(
+        telefono = dplyr::coalesce(dplyr::first(stats::na.omit(.data$telefono)), NA_character_),
+        email = dplyr::coalesce(dplyr::first(stats::na.omit(.data$email)), NA_character_),
+        .groups = "drop"
+      )
+  })
 }
 
 #' Tabla Ventas con columnas del Sheets, filtrada por origen y rango de fechas.

@@ -44,6 +44,11 @@ source(file.path(APP_ROOT, "R", "origenes_citas.R"), local = FALSE)
 source(file.path(APP_ROOT, "R", "ui.R"), local = FALSE)
 source(file.path(APP_ROOT, "R", "server.R"), local = FALSE)
 
+# Precarga local una vez por worker (evita API live y re-lecturas en la 1ª sesión).
+invisible(try(origenes_load_joined(APP_ROOT), silent = TRUE))
+invisible(try(origenes_load_rscg_bundle(APP_ROOT), silent = TRUE))
+invisible(try(origenes_hub_contact_phone_email(APP_ROOT), silent = TRUE))
+
 shiny::shinyApp(
   ui = origenes_ui(),
   server = origenes_server

@@ -3,14 +3,17 @@
 # Fuente: data/canonical/origenes_joined.rds
 
 origenes_load_joined <- function(root = Sys.getenv("ORIGENES_APP_ROOT", ".")) {
-  path <- file.path(root, "data", "canonical", "origenes_joined.rds")
-  if (!file.exists(path)) {
-    return(NULL)
-  }
-  obj <- readRDS(path)
-  attr(obj, "source_path") <- normalizePath(path, winslash = "/", mustWork = FALSE)
-  attr(obj, "source_label") <- "canonical_joined"
-  obj
+  root_key <- normalizePath(root, winslash = "/", mustWork = FALSE)
+  origenes_data_cached(paste0("joined::", root_key), function() {
+    path <- file.path(root, "data", "canonical", "origenes_joined.rds")
+    if (!file.exists(path)) {
+      return(NULL)
+    }
+    obj <- readRDS(path)
+    attr(obj, "source_path") <- normalizePath(path, winslash = "/", mustWork = FALSE)
+    attr(obj, "source_label") <- "canonical_joined"
+    obj
+  })
 }
 
 origenes_sale_is_firmado <- function(estado) {
