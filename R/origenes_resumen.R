@@ -37,8 +37,10 @@ origenes_enrich_embajadores <- function(embajadores, meetings, as_of = Sys.Date(
       dplyr::mutate(
         fecha_primera_cita = as.Date(NA),
         fecha_ultima_cita = as.Date(NA),
+        n_citas = 0L,
         tiene_cita_agendada = FALSE,
         tiene_primera_cita = FALSE,
+        tiene_mas_de_una_cita = FALSE,
         activo_30d = FALSE
       ))
   }
@@ -54,6 +56,7 @@ origenes_enrich_embajadores <- function(embajadores, meetings, as_of = Sys.Date(
   by_emb <- m |>
     dplyr::group_by(.data$embajador_key) |>
     dplyr::summarise(
+      n_citas = dplyr::n(),
       fecha_ultima_cita = max(.data$fecha, na.rm = TRUE),
       fecha_primera_cita = {
         fechas <- .data$fecha[.data$realizada & .data$es_primera]
@@ -65,8 +68,10 @@ origenes_enrich_embajadores <- function(embajadores, meetings, as_of = Sys.Date(
   embajadores |>
     dplyr::left_join(by_emb, by = c("nombre_key" = "embajador_key")) |>
     dplyr::mutate(
+      n_citas = as.integer(dplyr::coalesce(.data$n_citas, 0L)),
       tiene_cita_agendada = !is.na(.data$fecha_ultima_cita),
       tiene_primera_cita = !is.na(.data$fecha_primera_cita),
+      tiene_mas_de_una_cita = .data$n_citas > 1L,
       activo_30d = !is.na(.data$fecha_ultima_cita) &
         .data$fecha_ultima_cita >= (as_of - active_days) &
         .data$fecha_ultima_cita <= as_of
@@ -258,7 +263,8 @@ origenes_resumen_tabla_embajadores <- function(prep, start, end, granularity = "
       registrados = nrow(cohort),
       cita_agendada = sum(cohort$tiene_cita_agendada, na.rm = TRUE),
       primera_cita = sum(cohort$tiene_primera_cita, na.rm = TRUE),
-      activos = sum(cohort$activo_30d, na.rm = TRUE)
+      activos = sum(cohort$activo_30d, na.rm = TRUE),
+      retencion = sum(cohort$tiene_mas_de_una_cita, na.rm = TRUE)
     )
   })
 
@@ -266,6 +272,7 @@ origenes_resumen_tabla_embajadores <- function(prep, start, end, granularity = "
   total_ag <- sum(vapply(cols, `[[`, integer(1), "cita_agendada"))
   total_1ra <- sum(vapply(cols, `[[`, integer(1), "primera_cita"))
   total_activos <- sum(emb$activo_30d, na.rm = TRUE)
+  total_ret <- sum(vapply(cols, `[[`, integer(1), "retencion"))
   labels <- vapply(periods, origenes_period_label, character(1), granularity = granularity)
 
   tibble::tibble(
@@ -275,7 +282,8 @@ origenes_resumen_tabla_embajadores <- function(prep, start, end, granularity = "
       "Primera cita",
       "Conversión primera cita / registrados",
       paste0("Activos (Cita últimos ", active_days, " días)"),
-      "Conversión activo / primera cita"
+      "Conversión activo / primera cita",
+      "Tasa de retención (>1 cita / registrados)"
     ),
     Total = c(
       as.character(total_reg),
@@ -283,7 +291,8 @@ origenes_resumen_tabla_embajadores <- function(prep, start, end, granularity = "
       as.character(total_1ra),
       brokers_fmt_pct(total_1ra, total_reg),
       as.character(total_activos),
-      brokers_fmt_pct(total_activos, total_1ra)
+      brokers_fmt_pct(total_activos, total_1ra),
+      brokers_fmt_pct(total_ret, total_reg)
     )
   ) |>
     dplyr::bind_cols(
@@ -296,7 +305,8 @@ origenes_resumen_tabla_embajadores <- function(prep, start, end, granularity = "
               as.character(cols[[i]]$primera_cita),
               brokers_fmt_pct(cols[[i]]$primera_cita, cols[[i]]$registrados),
               as.character(cols[[i]]$activos),
-              brokers_fmt_pct(cols[[i]]$activos, cols[[i]]$primera_cita)
+              brokers_fmt_pct(cols[[i]]$activos, cols[[i]]$primera_cita),
+              brokers_fmt_pct(cols[[i]]$retencion, cols[[i]]$registrados)
             )
           }),
           labels
@@ -328,6 +338,7 @@ origenes_resumen_tabla_resultados <- function(prep, start, end, granularity = "m
       citas_agendadas = nrow(m),
       citas_nuevas = sum(m$primera_cita & m$realizada, na.rm = TRUE),
       total_realizadas = sum(m$realizada, na.rm = TRUE),
+      citas_retencion = sum(!dplyr::coalesce(m$primera_cita, FALSE), na.rm = TRUE),
       unidades = sum(v$unidades, na.rm = TRUE),
       facturacion = sum(v$precio, na.rm = TRUE)
     )
@@ -339,6 +350,7 @@ origenes_resumen_tabla_resultados <- function(prep, start, end, granularity = "m
     citas_agendadas = sum(vapply(cols, `[[`, numeric(1), "citas_agendadas")),
     citas_nuevas = sum(vapply(cols, `[[`, numeric(1), "citas_nuevas")),
     total_realizadas = sum(vapply(cols, `[[`, numeric(1), "total_realizadas")),
+    citas_retencion = sum(vapply(cols, `[[`, numeric(1), "citas_retencion")),
     unidades = sum(vapply(cols, `[[`, numeric(1), "unidades")),
     facturacion = sum(vapply(cols, `[[`, numeric(1), "facturacion"))
   )
@@ -349,16 +361,22 @@ origenes_resumen_tabla_resultados <- function(prep, start, end, granularity = "m
       "Citas Agendadas",
       "Citas Nuevas Realizadas",
       "Total de citas realizadas",
+      "Conversión citas realizadas",
+      "Conversión retención",
       "Unidades Vendidas",
-      "Facturación"
+      "Facturación",
+      "Ticket promedio"
     ),
     Total = c(
       as.character(totals$primera_cita),
       as.character(totals$citas_agendadas),
       as.character(totals$citas_nuevas),
       as.character(totals$total_realizadas),
+      brokers_fmt_pct(totals$total_realizadas, totals$citas_agendadas),
+      brokers_fmt_pct(totals$citas_retencion, totals$citas_agendadas),
       as.character(totals$unidades),
-      brokers_fmt_money(totals$facturacion)
+      brokers_fmt_money(totals$facturacion),
+      brokers_fmt_money(if (totals$unidades > 0) totals$facturacion / totals$unidades else NA_real_)
     )
   ) |>
     dplyr::bind_cols(
@@ -370,8 +388,13 @@ origenes_resumen_tabla_resultados <- function(prep, start, end, granularity = "m
               as.character(cols[[i]]$citas_agendadas),
               as.character(cols[[i]]$citas_nuevas),
               as.character(cols[[i]]$total_realizadas),
+              brokers_fmt_pct(cols[[i]]$total_realizadas, cols[[i]]$citas_agendadas),
+              brokers_fmt_pct(cols[[i]]$citas_retencion, cols[[i]]$citas_agendadas),
               as.character(cols[[i]]$unidades),
-              brokers_fmt_money(cols[[i]]$facturacion)
+              brokers_fmt_money(cols[[i]]$facturacion),
+              brokers_fmt_money(
+                if (cols[[i]]$unidades > 0) cols[[i]]$facturacion / cols[[i]]$unidades else NA_real_
+              )
             )
           }),
           labels
@@ -402,6 +425,7 @@ origenes_resumen_tabla_conversion <- function(prep, start, end, granularity = "m
       cita_realizada = realizadas,
       procesos = nrow(p),
       cierres = nrow(v),
+      citas_realizadas_todas = sum(m$realizada, na.rm = TRUE),
       unidades = sum(v$unidades, na.rm = TRUE),
       facturacion = sum(v$precio, na.rm = TRUE)
     )
@@ -411,6 +435,7 @@ origenes_resumen_tabla_conversion <- function(prep, start, end, granularity = "m
   tot_real <- sum(vapply(cols, `[[`, numeric(1), "cita_realizada"))
   tot_proc <- sum(vapply(cols, `[[`, numeric(1), "procesos"))
   tot_close <- sum(vapply(cols, `[[`, numeric(1), "cierres"))
+  tot_real_all <- sum(vapply(cols, `[[`, numeric(1), "citas_realizadas_todas"))
   tot_units <- sum(vapply(cols, `[[`, numeric(1), "unidades"))
   tot_fact <- sum(vapply(cols, `[[`, numeric(1), "facturacion"))
 
@@ -420,16 +445,20 @@ origenes_resumen_tabla_conversion <- function(prep, start, end, granularity = "m
       "Procesos de venta",
       "Cierres",
       "Conversión cita realizada / venta",
+      "Conversión ventas",
       "Unidades Vendidas",
-      "Facturación"
+      "Facturación",
+      "Ticket promedio"
     ),
     Total = c(
       as.character(tot_real),
       as.character(tot_proc),
       as.character(tot_close),
       brokers_fmt_pct(tot_close, tot_real),
+      brokers_fmt_pct(tot_close, tot_real_all),
       as.character(tot_units),
-      brokers_fmt_money(tot_fact)
+      brokers_fmt_money(tot_fact),
+      brokers_fmt_money(if (tot_units > 0) tot_fact / tot_units else NA_real_)
     )
   ) |>
     dplyr::bind_cols(
@@ -441,8 +470,12 @@ origenes_resumen_tabla_conversion <- function(prep, start, end, granularity = "m
               as.character(cols[[i]]$procesos),
               as.character(cols[[i]]$cierres),
               brokers_fmt_pct(cols[[i]]$cierres, cols[[i]]$cita_realizada),
+              brokers_fmt_pct(cols[[i]]$cierres, cols[[i]]$citas_realizadas_todas),
               as.character(cols[[i]]$unidades),
-              brokers_fmt_money(cols[[i]]$facturacion)
+              brokers_fmt_money(cols[[i]]$facturacion),
+              brokers_fmt_money(
+                if (cols[[i]]$unidades > 0) cols[[i]]$facturacion / cols[[i]]$unidades else NA_real_
+              )
             )
           }),
           labels
@@ -457,6 +490,7 @@ origenes_resumen_kpis <- function(prep, start = NULL, end = NULL) {
   meetings <- prep$meetings
   sales <- prep$sales
   firmadas <- sales |> dplyr::filter(.data$es_firmado)
+  as_of <- as.Date(prep$as_of %||% Sys.Date())
 
   emb_cohort <- emb
   if (!is.null(start) && !is.null(end)) {
@@ -468,10 +502,24 @@ origenes_resumen_kpis <- function(prep, start = NULL, end = NULL) {
       )
   }
 
+  ytd <- origenes_ytd_date_range(as_of)
+  emb_ytd <- emb |>
+    dplyr::filter(
+      !is.na(.data$fecha_registro),
+      .data$fecha_registro >= ytd$start,
+      .data$fecha_registro <= ytd$end
+    )
+
   registrados <- nrow(emb_cohort)
+  registrados_ytd <- nrow(emb_ytd)
   primera_cita_emb <- sum(emb_cohort$tiene_primera_cita, na.rm = TRUE)
   activos <- sum(emb$activo_30d, na.rm = TRUE)
+  retencion_n <- sum(emb_cohort$tiene_mas_de_una_cita, na.rm = TRUE)
+  retencion_ytd_n <- sum(emb_ytd$tiene_mas_de_una_cita, na.rm = TRUE)
   citas_nuevas <- sum(meetings$primera_cita & meetings$realizada, na.rm = TRUE)
+  citas_agendadas <- nrow(meetings)
+  citas_realizadas <- sum(meetings$realizada, na.rm = TRUE)
+  citas_retencion <- sum(!dplyr::coalesce(meetings$primera_cita, FALSE), na.rm = TRUE)
   unidades <- sum(firmadas$unidades, na.rm = TRUE)
   facturacion <- sum(firmadas$precio, na.rm = TRUE)
   cierres <- nrow(firmadas)
@@ -482,12 +530,23 @@ origenes_resumen_kpis <- function(prep, start = NULL, end = NULL) {
     primera_cita_emb = primera_cita_emb,
     activos = activos,
     conv_activo_primera = if (primera_cita_emb > 0) activos / primera_cita_emb else NA_real_,
+    tasa_retencion = if (registrados > 0) retencion_n / registrados else NA_real_,
+    retencion_n = retencion_n,
+    tasa_retencion_ytd = if (registrados_ytd > 0) retencion_ytd_n / registrados_ytd else NA_real_,
+    retencion_ytd_n = retencion_ytd_n,
+    registrados_ytd = registrados_ytd,
     citas_nuevas = citas_nuevas,
-    citas_agendadas = nrow(meetings),
+    citas_agendadas = citas_agendadas,
+    citas_realizadas = citas_realizadas,
+    conv_citas_realizadas = if (citas_agendadas > 0) citas_realizadas / citas_agendadas else NA_real_,
+    conv_retencion = if (citas_agendadas > 0) citas_retencion / citas_agendadas else NA_real_,
+    citas_retencion = citas_retencion,
     cierres = cierres,
     conv_cita_cierre = if (citas_nuevas > 0) cierres / citas_nuevas else NA_real_,
+    conv_ventas = if (citas_realizadas > 0) cierres / citas_realizadas else NA_real_,
     unidades = unidades,
-    facturacion = facturacion
+    facturacion = facturacion,
+    ticket = if (unidades > 0) facturacion / unidades else NA_real_
   )
 }
 
@@ -495,6 +554,17 @@ origenes_resumen_kpis <- function(prep, start = NULL, end = NULL) {
 origenes_default_date_range <- function(as_of = Sys.Date()) {
   as_of <- as.Date(as_of)
   start <- as.Date(format(as_of, "%Y-%m-01"))
+  end <- as_of
+  if (end < start) {
+    end <- start
+  }
+  list(start = start, end = end)
+}
+
+#' Año en curso: 1 de enero → hoy (filtro Periodo = Anual).
+origenes_ytd_date_range <- function(as_of = Sys.Date()) {
+  as_of <- as.Date(as_of)
+  start <- as.Date(paste0(format(as_of, "%Y"), "-01-01"))
   end <- as_of
   if (end < start) {
     end <- start

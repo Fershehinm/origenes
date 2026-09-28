@@ -61,7 +61,7 @@ origenes_citas_kpis_ui <- function(kpis, prefix) {
   emb_col <- kpis$emb_col %||% "Embajador Registrado"
   cards <- list(
     origenes_mini_kpi(
-      "Citas", nxtgen_fmt_num(kpis$total), "en el periodo",
+      "Citas", nxtgen_fmt_num(kpis$total),
       accent = TRUE, id = paste0(prefix, "_kpi_citas_total")
     ),
     origenes_mini_kpi(
@@ -101,23 +101,21 @@ origenes_ventas_kpis_ui <- function(kpis, prefix) {
   shiny::div(
     class = "or-mini-kpi-grid",
     origenes_mini_kpi(
-      "Operaciones", nxtgen_fmt_num(kpis$firmados), "filas / unidades",
+      "Operaciones", nxtgen_fmt_num(kpis$firmados),
       accent = TRUE, id = paste0(prefix, "_kpi_ventas_ops")
     ),
     origenes_mini_kpi(
-      "Facturación", origenes_money(kpis$facturacion, compact = TRUE), "precio firmado",
+      "Facturación", origenes_money(kpis$facturacion, compact = TRUE),
       id = paste0(prefix, "_kpi_ventas_fact")
     ),
     origenes_mini_kpi(
       "Ticket medio",
       if (is.finite(kpis$ticket)) origenes_money(kpis$ticket, compact = TRUE) else "—",
-      "por unidad",
       id = paste0(prefix, "_kpi_ventas_ticket")
     ),
     origenes_mini_kpi(
       "Ciclo mediano",
       if (is.finite(kpis$ciclo_med)) paste0(round(kpis$ciclo_med), " d") else "—",
-      "primera cita → firma",
       id = paste0(prefix, "_kpi_ventas_ciclo")
     )
   )
@@ -220,10 +218,6 @@ origenes_citas_primera_progress_ui <- function(tbl, prefix) {
 
   shiny::div(
     class = "or-progress-block",
-    shiny::p(
-      class = "or-progress-block__help",
-      "De las citas del periodo, cuántas están marcadas como la primera del prospecto (campo Primera Cita)."
-    ),
     shiny::div(
       class = "or-progress-track",
       title = NULL,
@@ -246,12 +240,12 @@ origenes_citas_primera_progress_ui <- function(tbl, prefix) {
       class = "or-progress-meta",
       shiny::span(
         class = "or-progress-meta__main",
-        paste0(nxtgen_fmt_num(n_si), " de ", nxtgen_fmt_num(n), " son primera cita (", pct, "%)")
+        paste0(nxtgen_fmt_num(n_si), " de ", nxtgen_fmt_num(n), " (", pct, "%)")
       ),
       shiny::span(
         class = "or-progress-meta__sub",
         paste0(
-          nxtgen_fmt_num(n_no), " no son primera",
+          nxtgen_fmt_num(n_no), " no",
           if (n_na > 0) paste0(" · ", nxtgen_fmt_num(n_na), " sin dato") else ""
         )
       )
@@ -279,10 +273,6 @@ origenes_citas_postgrad_progress_ui <- function(tbl, prefix) {
 
   shiny::div(
     class = "or-progress-block",
-    shiny::p(
-      class = "or-progress-block__help",
-      "Qué % de las citas ocurrieron después de la fecha de graduación del embajador."
-    ),
     shiny::div(
       class = "or-progress-track",
       shiny::tags$button(
@@ -304,12 +294,12 @@ origenes_citas_postgrad_progress_ui <- function(tbl, prefix) {
       class = "or-progress-meta",
       shiny::span(
         class = "or-progress-meta__main",
-        paste0(nxtgen_fmt_num(n_si), " de ", nxtgen_fmt_num(n), " son post graduación (", pct, "%)")
+        paste0(nxtgen_fmt_num(n_si), " de ", nxtgen_fmt_num(n), " (", pct, "%)")
       ),
       shiny::span(
         class = "or-progress-meta__sub",
         paste0(
-          nxtgen_fmt_num(n_no), " antes o sin graduar",
+          nxtgen_fmt_num(n_no), " no",
           if (n_na > 0) paste0(" · ", nxtgen_fmt_num(n_na), " sin dato") else ""
         )
       )
@@ -600,7 +590,10 @@ origenes_resumen_series_from_tables <- function(bundle) {
       nm <- emb$metrica[grepl("^Conversión activo", emb$metrica)]
       if (length(nm)) as.numeric(pick_pct_row(emb, nm[[1]])) else rep(NA_real_, length(period_cols))
     },
-    conv_cierre = as.numeric(pick_pct_row(conv, "Conversión cita realizada / venta"))
+    conv_cierre = as.numeric(pick_pct_row(conv, "Conversión cita realizada / venta")),
+    conv_realizadas = as.numeric(pick_pct_row(res, "Conversión citas realizadas")),
+    conv_retencion = as.numeric(pick_pct_row(res, "Conversión retención")),
+    conv_ventas = as.numeric(pick_pct_row(conv, "Conversión ventas"))
   )
 }
 
@@ -760,22 +753,22 @@ origenes_resumen_chart_conversiones <- function(series, source) {
   cols <- origenes_viz_colors()
   p <- plotly::plot_ly(source = source) |>
     plotly::add_bars(
-      x = series$periodo, y = series$conv_primera, name = "1ª cita / registrados",
+      x = series$periodo, y = series$conv_realizadas, name = "Realizadas / agendadas",
       key = series$periodo, customdata = series$periodo,
       marker = list(color = cols$series[[1]]),
-      hovertemplate = "%{x}: %{y:.1f}%<extra>1ª cita / registrados</extra>"
+      hovertemplate = "%{x}: %{y:.1f}%<extra>Realizadas / agendadas</extra>"
     ) |>
     plotly::add_bars(
-      x = series$periodo, y = series$conv_activo, name = "Activos / 1ª cita",
+      x = series$periodo, y = series$conv_retencion, name = "Retención de citas",
       key = series$periodo, customdata = series$periodo,
       marker = list(color = cols$series[[2]]),
-      hovertemplate = "%{x}: %{y:.1f}%<extra>Activos / 1ª cita</extra>"
+      hovertemplate = "%{x}: %{y:.1f}%<extra>Retención de citas</extra>"
     ) |>
     plotly::add_bars(
-      x = series$periodo, y = series$conv_cierre, name = "Cita → venta",
+      x = series$periodo, y = series$conv_ventas, name = "Cierres / realizadas",
       key = series$periodo, customdata = series$periodo,
       marker = list(color = cols$series[[3]]),
-      hovertemplate = "%{x}: %{y:.1f}%<extra>Cita → venta</extra>"
+      hovertemplate = "%{x}: %{y:.1f}%<extra>Cierres / realizadas</extra>"
     ) |>
     plotly::layout(
       barmode = "group",

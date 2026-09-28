@@ -17,11 +17,11 @@
 #' `producer` debe ser una función sin argumentos que devuelve el valor.
 origenes_data_cached <- function(key, producer) {
   key <- as.character(key)
-  if (exists(key, envir = .origenes_data_cache, inherits = FALSE)) {
-    return(get(key, envir = .origenes_data_cache, inherits = FALSE))
+  if (base::exists(key, envir = .origenes_data_cache, inherits = FALSE)) {
+    return(base::get(key, envir = .origenes_data_cache, inherits = FALSE))
   }
   val <- producer()
-  assign(key, val, envir = .origenes_data_cache)
+  base::assign(key, val, envir = .origenes_data_cache)
   val
 }
 

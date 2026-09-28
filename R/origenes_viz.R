@@ -30,7 +30,11 @@ origenes_plotly_finish <- function(p, source = NULL, margin = NULL) {
     base$margin <- margin
   }
   p <- do.call(plotly::layout, c(list(p), base))
-  plotly::config(p, displayModeBar = FALSE, responsive = TRUE)
+  p <- plotly::config(p, displayModeBar = FALSE, responsive = TRUE)
+  if (!is.null(source) && nzchar(as.character(source))) {
+    p$x$source <- as.character(source)
+  }
+  plotly::event_register(p, "plotly_click")
 }
 
 origenes_plotly_empty <- function(message = "Sin datos en el periodo", source = NULL) {
@@ -52,15 +56,12 @@ origenes_plotly_empty <- function(message = "Sin datos en el periodo", source = 
   origenes_plotly_finish(p, source = source)
 }
 
-origenes_chart_card <- function(title, subtitle = NULL, ...) {
+origenes_chart_card <- function(title, ..., subtitle = NULL) {
   bslib::card(
     class = "or-card or-chart-card",
     bslib::card_header(
-      shiny::div(
-        shiny::span(class = "or-card__eyebrow", "VISUAL"),
-        shiny::h3(title)
-      ),
-      if (!is.null(subtitle) && nzchar(subtitle)) {
+      shiny::h3(title),
+      if (!is.null(subtitle) && is.character(subtitle) && nzchar(subtitle)) {
         shiny::span(class = "or-card__meta", subtitle)
       }
     ),

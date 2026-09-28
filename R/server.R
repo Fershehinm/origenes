@@ -35,53 +35,72 @@ origenes_resumen_header_ui <- function(bundle, prefix) {
       origenes_format_date_range_label(bundle$span$start, bundle$span$end),
       paste("Vista", tolower(gran_label))
     ),
-    shiny::div(
-      class = "or-resumen-grid or-resumen-grid--3",
+    origenes_resumen_section(
+      "01",
+      "Embajadores",
       origenes_resumen_kpi(
-        "Embajadores registrados",
+        "Registrados",
         nxtgen_fmt_num(k$registrados),
-        paste0(
-          nxtgen_fmt_num(k$primera_cita_emb),
-          " con primera cita · ",
-          nxtgen_fmt_pct(k$conv_primera_reg),
-          " conversión"
-        ),
+        paste0(nxtgen_fmt_pct(k$conv_primera_reg), " con 1ª cita"),
         accent = TRUE,
         id = paste0(prefix, "_kpi_resumen_registrados")
       ),
       origenes_resumen_kpi(
         paste0("Activos (", active_days, " días)"),
         nxtgen_fmt_num(k$activos),
-        paste0(
-          "Stock del canal: embajadores con cita en los últimos ",
-          active_days,
-          " días (no solo la cohorte del filtro)"
-        ),
         id = paste0(prefix, "_kpi_resumen_activos")
       ),
       origenes_resumen_kpi(
-        "Citas nuevas realizadas",
-        nxtgen_fmt_num(k$citas_nuevas),
-        paste0(nxtgen_fmt_num(k$citas_agendadas), " agendadas"),
-        id = paste0(prefix, "_kpi_resumen_citas_nuevas")
+        "Tasa de retención",
+        nxtgen_fmt_pct(k$tasa_retencion),
+        id = paste0(prefix, "_kpi_resumen_retencion")
+      )
+    ),
+    origenes_resumen_section(
+      "02",
+      "Citas",
+      origenes_resumen_kpi(
+        "Agendadas",
+        nxtgen_fmt_num(k$citas_agendadas),
+        paste0(nxtgen_fmt_num(k$citas_nuevas), " primeras realizadas"),
+        id = paste0(prefix, "_kpi_resumen_agendadas")
       ),
+      origenes_resumen_kpi(
+        "Realizadas",
+        nxtgen_fmt_num(k$citas_realizadas),
+        paste0(nxtgen_fmt_pct(k$conv_citas_realizadas), " de agendadas"),
+        id = paste0(prefix, "_kpi_resumen_realizadas")
+      ),
+      origenes_resumen_kpi(
+        "Conv. retención",
+        nxtgen_fmt_pct(k$conv_retencion),
+        id = paste0(prefix, "_kpi_resumen_conv_retencion")
+      )
+    ),
+    origenes_resumen_section(
+      "03",
+      "Ventas",
       origenes_resumen_kpi(
         "Cierres",
         nxtgen_fmt_num(k$cierres),
-        paste0(nxtgen_fmt_pct(k$conv_cita_cierre), " conversión cita→venta"),
+        paste0(nxtgen_fmt_pct(k$conv_ventas), " de realizadas"),
         id = paste0(prefix, "_kpi_resumen_cierres")
       ),
       origenes_resumen_kpi(
-        "Unidades vendidas",
+        "Unidades",
         nxtgen_fmt_num(k$unidades),
-        "firmadas del canal",
         id = paste0(prefix, "_kpi_resumen_unidades")
       ),
       origenes_resumen_kpi(
         "Facturación",
         origenes_money(k$facturacion, compact = TRUE),
-        "valor acumulado firmado",
+        accent = TRUE,
         id = paste0(prefix, "_kpi_resumen_facturacion")
+      ),
+      origenes_resumen_kpi(
+        "Ticket promedio",
+        origenes_money(k$ticket, compact = TRUE),
+        id = paste0(prefix, "_kpi_resumen_ticket")
       )
     )
   )
@@ -417,7 +436,7 @@ origenes_bind_origin_server <- function(prefix,
     )
   }, ignoreInit = TRUE)
 
-  # --- Resumen charts (últimos 6 meses) ------------------------------------
+  # --- Resumen charts (solo vista anual: meses del año en curso) -----------
   series <- shiny::reactive({
     origenes_resumen_series_from_tables(resumen_charts_reactive())
   })
@@ -501,14 +520,36 @@ origenes_bind_origin_server <- function(prefix,
     )
   }, ignoreInit = TRUE)
 
-  shiny::observeEvent(input[[paste0(prefix, "_kpi_resumen_citas_nuevas")]], {
+  shiny::observeEvent(input[[paste0(prefix, "_kpi_resumen_retencion")]], {
+    open_resumen_metric_drill(
+      c("Tasa de retención"),
+      "Tasa de retención"
+    )
+  }, ignoreInit = TRUE)
+
+  shiny::observeEvent(input[[paste0(prefix, "_kpi_resumen_agendadas")]], {
     origenes_citas_open_drill(
       citas_reactive(),
-      list(
-        list(field = "Primera Cita", value = "si"),
-        list(field = "Estatus", value = "Realizada")
-      ),
-      "Primera cita realizada",
+      list(),
+      "Citas agendadas",
+      session = session
+    )
+  }, ignoreInit = TRUE)
+
+  shiny::observeEvent(input[[paste0(prefix, "_kpi_resumen_realizadas")]], {
+    origenes_citas_open_drill(
+      citas_reactive(),
+      list(list(field = "Estatus", value = "Realizada")),
+      "Citas realizadas",
+      session = session
+    )
+  }, ignoreInit = TRUE)
+
+  shiny::observeEvent(input[[paste0(prefix, "_kpi_resumen_conv_retencion")]], {
+    origenes_citas_open_drill(
+      citas_reactive(),
+      list(list(field = "Primera Cita", value = "no")),
+      "Citas de retención",
       session = session
     )
   }, ignoreInit = TRUE)
@@ -536,6 +577,15 @@ origenes_bind_origin_server <- function(prefix,
       title = channel_title,
       tbl = ventas_reactive(),
       metric_lbl = "Facturación",
+      session = session
+    )
+  }, ignoreInit = TRUE)
+
+  shiny::observeEvent(input[[paste0(prefix, "_kpi_resumen_ticket")]], {
+    origenes_ventas_drill_show_modal(
+      title = channel_title,
+      tbl = ventas_reactive(),
+      metric_lbl = "Ticket promedio",
       session = session
     )
   }, ignoreInit = TRUE)
@@ -618,6 +668,20 @@ origenes_server <- function(input, output, session) {
   nxtgen_date_range <- origenes_bind_date_range("nxtgen")
   brokers_date_range <- origenes_bind_date_range("brokers")
 
+  origenes_sync_dates_to_granularity <- function(prefix) {
+    shiny::observeEvent(input[[paste0(prefix, "_granularity")]], {
+      gran <- input[[paste0(prefix, "_granularity")]]
+      if (!identical(gran, "anual")) {
+        return()
+      }
+      ytd <- origenes_ytd_date_range()
+      shiny::updateDateInput(session, paste0(prefix, "_date_start"), value = ytd$start)
+      shiny::updateDateInput(session, paste0(prefix, "_date_end"), value = ytd$end)
+    }, ignoreInit = TRUE)
+  }
+  origenes_sync_dates_to_granularity("nxtgen")
+  origenes_sync_dates_to_granularity("brokers")
+
   nxtgen_granularity <- shiny::reactive({
     input$nxtgen_granularity %||% "mensual"
   })
@@ -647,26 +711,32 @@ origenes_server <- function(input, output, session) {
     )
   })
 
-  # Gráficas Resumen: siempre últimos 6 meses (misma granularidad del filtro).
+  # Gráficas Resumen: visibles solo en Anual, con un punto por mes del año.
   nxtgen_resumen_charts <- shiny::reactive({
-    dr <- origenes_chart_date_range(n_months = 6L)
+    if (!identical(nxtgen_granularity(), "anual")) {
+      return(NULL)
+    }
+    dr <- origenes_ytd_date_range()
     origenes_resumen_bundle(
       joined(),
       "nxtgen",
       start = dr$start,
       end = dr$end,
-      granularity = nxtgen_granularity()
+      granularity = "mensual"
     )
   })
 
   brokers_resumen_charts <- shiny::reactive({
-    dr <- origenes_chart_date_range(n_months = 6L)
+    if (!identical(brokers_granularity(), "anual")) {
+      return(NULL)
+    }
+    dr <- origenes_ytd_date_range()
     origenes_resumen_bundle(
       joined(),
       "broker",
       start = dr$start,
       end = dr$end,
-      granularity = brokers_granularity()
+      granularity = "mensual"
     )
   })
 
