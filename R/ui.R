@@ -424,6 +424,24 @@ origenes_nxtgen_ui <- function() {
 
 origenes_brokers_embajadores_ui <- function() {
   canal_opts <- origenes_brokers_canal_choices()
+  col_choices <- c(
+    "(elegir columna)" = "",
+    "Fecha de registro" = ".fecha_reg",
+    "Nombre" = "Nombre",
+    "Pertenece a un equipo" = "Pertenece a un equipo",
+    "Role" = "Role",
+    "Conciliacion Nombre" = "Conciliacion Nombre",
+    "Canal" = "Canal",
+    "Fecha graduación" = "Fecha graduación",
+    "Generación" = "Generación",
+    "Fecha primera cita realizada" = "Fecha primera cita realizada",
+    "Fecha de última cita realizada" = "Fecha de última cita realizada",
+    "Gen Registro" = "Gen Registro",
+    "Días desde la última cita realizadas" = "Días desde la última cita realizadas",
+    "Fecha de última cita agendada/realizada" = "Fecha de última cita agendada/realizada",
+    "Gen primera cita realizada" = "Gen primera cita realizada",
+    "Ciclo Registro / Primera Cita" = "Ciclo Registro / Primera Cita"
+  )
   shiny::div(
     class = "or-brokers-roster",
     shiny::div(
@@ -434,6 +452,36 @@ origenes_brokers_embajadores_ui <- function() {
     htmltools::HTML(origenes_brokers_datalist_html("brokers_gen_choices", paste("Gen", seq_len(5L)))),
     htmltools::HTML(origenes_brokers_datalist_html("brokers_canal_choices", canal_opts)),
     shiny::uiOutput("brokers_crm_datalist"),
+    shiny::div(
+      class = "or-brokers-roster__tools",
+      shiny::selectInput(
+        "brokers_roster_col",
+        "Columna",
+        choices = col_choices,
+        selected = "",
+        width = "260px"
+      ),
+      shiny::conditionalPanel(
+        condition = "input.brokers_roster_col && input.brokers_roster_col.length > 0",
+        shiny::div(
+          class = "or-brokers-roster__tools-col",
+          shiny::textInput(
+            "brokers_roster_col_filter",
+            "Filtrar",
+            value = "",
+            placeholder = "Contiene…",
+            width = "200px"
+          ),
+          shiny::radioButtons(
+            "brokers_roster_col_sort",
+            "Orden",
+            choices = c("Por defecto" = "", "Ascendente" = "asc", "Descendente" = "desc"),
+            selected = "",
+            inline = TRUE
+          )
+        )
+      )
+    ),
     shiny::div(
       class = "or-metric-table-wrap or-brokers-roster__table",
       reactable::reactableOutput("brokers_roster_table", width = "100%")
@@ -522,7 +570,7 @@ origenes_ui <- function() {
     window_title = "Origin Analytics | División 2c",
     header = shiny::tags$head(
       shiny::tags$meta(name = "viewport", content = "width=device-width, initial-scale=1"),
-      shiny::tags$link(rel = "stylesheet", type = "text/css", href = "styles.css?v=42"),
+      shiny::tags$link(rel = "stylesheet", type = "text/css", href = "styles.css?v=43"),
       shiny::tags$script(htmltools::HTML(paste(
         "Shiny.addCustomMessageHandler('origenes-htmlwidgets-static-render', function(message) {",
         "  setTimeout(function() {",

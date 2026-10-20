@@ -974,10 +974,57 @@ origenes_server <- function(input, output, session) {
     htmltools::HTML(origenes_brokers_datalist_html("brokers_crm_choices", crm))
   })
 
+  brokers_roster_filtered <- shiny::reactive({
+    show_all <- brokers_roster_show()
+    shiny::req(nrow(show_all) > 0)
+    # Fecha ordenable: usamos .fecha_reg (Date); ocultamos el texto dd/mm/yyyy.
+    show_all <- show_all |>
+      dplyr::select(-dplyr::any_of("Fecha de registro"))
+
+    col <- as.character(input$brokers_roster_col %||% "")
+    q <- stringr::str_squish(as.character(input$brokers_roster_col_filter %||% ""))
+    if (nzchar(col) && nzchar(q) && col %in% names(show_all)) {
+      vals <- show_all[[col]]
+      if (inherits(vals, "Date")) {
+        vals_chr <- origenes_fmt_date_sheets(vals)
+        vals_chr[is.na(vals_chr)] <- ""
+        hit <- grepl(tolower(q), tolower(vals_chr), fixed = TRUE) |
+          grepl(tolower(q), tolower(as.character(vals)), fixed = TRUE)
+      } else {
+        vals_chr <- as.character(vals)
+        vals_chr[is.na(vals_chr)] <- ""
+        hit <- grepl(tolower(q), tolower(vals_chr), fixed = TRUE)
+      }
+      show_all <- show_all[hit, , drop = FALSE]
+    }
+
+    sort_dir <- as.character(input$brokers_roster_col_sort %||% "")
+    if (nzchar(col) && sort_dir %in% c("asc", "desc") && col %in% names(show_all)) {
+      ord <- order(show_all[[col]], decreasing = identical(sort_dir, "desc"), na.last = TRUE)
+      show_all <- show_all[ord, , drop = FALSE]
+    } else {
+      show_all <- show_all |>
+        dplyr::arrange(
+          dplyr::desc(.data$.fecha_reg),
+          .data$Nombre,
+          .data$nombre_key
+        )
+    }
+    show_all
+  })
+
+  shiny::observeEvent(
+    list(input$brokers_roster_col, input$brokers_roster_col_filter),
+    {
+      brokers_roster_visible_n(brokers_roster_page_size)
+    },
+    ignoreInit = TRUE
+  )
+
   output$brokers_roster_load_more_ui <- shiny::renderUI({
     shiny::req(identical(input$brokers_subtab %||% "", "embajadores"))
-    show <- brokers_roster_show()
-    shiny::req(nrow(show) > 0)
+    show <- brokers_roster_filtered()
+    shiny::req(nrow(show) >= 0)
     visible <- min(brokers_roster_visible_n(), nrow(show))
     remaining <- nrow(show) - visible
     if (remaining <= 0) {
@@ -1012,55 +1059,52 @@ origenes_server <- function(input, output, session) {
   output$brokers_roster_table <- reactable::renderReactable({
     # No construir la tabla hasta abrir la pestaña (evita colgar el arranque).
     shiny::req(identical(input$brokers_subtab %||% "", "embajadores"))
-    show_all <- brokers_roster_show()
+    show_all <- brokers_roster_filtered()
     shiny::req(nrow(show_all) > 0)
     visible_n <- min(brokers_roster_visible_n(), nrow(show_all))
-    show <- utils::head(show_all, visible_n) |>
-      dplyr::mutate(quitar = .data$nombre_key, .before = 1L)
+    show <- utils::head(show_all, visible_n)
     keys <- as.character(show$nombre_key)
+    header_style <- list(whiteSpace = "normal", lineHeight = "1.3")
+    # Orden por clic en encabezado: Fecha de registro es Date (.fecha_reg).
+    default_sorted <- list(.fecha_reg = "desc", Nombre = "asc")
+    col <- as.character(input$brokers_roster_col %||% "")
+    sort_dir <- as.character(input$brokers_roster_col_sort %||% "")
+    if (nzchar(col) && sort_dir %in% c("asc", "desc") && col %in% names(show)) {
+      default_sorted <- stats::setNames(list(sort_dir), col)
+    }
     reactable::reactable(
       show,
-      filterable = TRUE,
-      searchable = TRUE,
+      filterable = FALSE,
+      searchable = FALSE,
       pagination = FALSE,
-      defaultSorted = list(.fecha_reg = "desc", Nombre = "asc"),
+      defaultSorted = default_sorted,
       highlight = TRUE,
       compact = TRUE,
       wrap = FALSE,
+      defaultColDef = reactable::colDef(
+        headerStyle = header_style,
+        sortNALast = TRUE
+      ),
       columns = list(
-        quitar = reactable::colDef(
-          name = "",
-          sortable = FALSE,
-          filterable = FALSE,
-          width = 44,
-          align = "center",
-          html = TRUE,
+        nombre_key = reactable::colDef(show = FALSE),
+        .fecha_reg = reactable::colDef(
+          name = "Fecha de registro",
+          minWidth = 150,
+          headerStyle = header_style,
           cell = function(value) {
-            k <- htmltools::htmlEscape(as.character(value %||% ""), attribute = TRUE)
-            paste0(
-              '<button type="button" class="or-roster-delete" title="Eliminar"',
-              ' aria-label="Eliminar" data-key="', k, '"',
-              " onclick=\"Shiny.setInputValue('brokers_roster_delete_key',",
-              "this.getAttribute('data-key'),{priority:'event'})\">\u00d7</button>"
-            )
+            out <- origenes_fmt_date_sheets(value)
+            if (is.na(out) || identical(out, "NA")) "" else out
           }
         ),
-        nombre_key = reactable::colDef(show = FALSE),
-        .fecha_reg = reactable::colDef(show = FALSE),
-        `Fecha de registro` = reactable::colDef(
-          name = "Fecha de registro",
-          minWidth = 118,
-          sortable = FALSE
-        ),
-        Nombre = reactable::colDef(name = "Nombre", minWidth = 170),
+        Nombre = reactable::colDef(name = "Nombre", minWidth = 180),
         `Pertenece a un equipo` = reactable::colDef(
           name = "Pertenece a un equipo",
-          minWidth = 118
+          minWidth = 170
         ),
-        Role = reactable::colDef(name = "Role", minWidth = 110),
+        Role = reactable::colDef(name = "Role", minWidth = 120),
         `Conciliacion Nombre` = reactable::colDef(
           name = "Conciliacion Nombre",
-          minWidth = 210,
+          minWidth = 200,
           html = TRUE,
           cell = function(value, index) {
             origenes_brokers_text_cell(
@@ -1088,7 +1132,7 @@ origenes_server <- function(input, output, session) {
         ),
         `Fecha graduación` = reactable::colDef(
           name = "Fecha graduación",
-          minWidth = 128,
+          minWidth = 150,
           html = TRUE,
           cell = function(value, index) {
             origenes_brokers_text_cell(
@@ -1101,7 +1145,7 @@ origenes_server <- function(input, output, session) {
         ),
         Generación = reactable::colDef(
           name = "Generación",
-          minWidth = 100,
+          minWidth = 120,
           html = TRUE,
           cell = function(value, index) {
             origenes_brokers_text_cell(
@@ -1114,23 +1158,23 @@ origenes_server <- function(input, output, session) {
           }
         ),
         `Fecha primera cita realizada` = reactable::colDef(
-          name = "Fecha primera cita realizada", minWidth = 120
+          name = "Fecha primera cita realizada", minWidth = 190
         ),
         `Fecha de última cita realizada` = reactable::colDef(
-          name = "Fecha de última cita realizada", minWidth = 120
+          name = "Fecha de última cita realizada", minWidth = 190
         ),
-        `Gen Registro` = reactable::colDef(name = "Gen Registro", minWidth = 100),
+        `Gen Registro` = reactable::colDef(name = "Gen Registro", minWidth = 120),
         `Días desde la última cita realizadas` = reactable::colDef(
-          name = "Días desde la última cita realizadas", minWidth = 100
+          name = "Días desde la última cita realizadas", minWidth = 200
         ),
         `Fecha de última cita agendada/realizada` = reactable::colDef(
-          name = "Fecha de última cita agendada/realizada", minWidth = 130
+          name = "Fecha de última cita agendada/realizada", minWidth = 220
         ),
         `Gen primera cita realizada` = reactable::colDef(
-          name = "Gen primera cita realizada", minWidth = 110
+          name = "Gen primera cita realizada", minWidth = 180
         ),
         `Ciclo Registro / Primera Cita` = reactable::colDef(
-          name = "Ciclo Registro / Primera Cita", minWidth = 110
+          name = "Ciclo Registro / Primera Cita", minWidth = 190
         )
       )
     )

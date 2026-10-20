@@ -1898,6 +1898,29 @@ footer.footer {
   align-items: center;
 }
 
+.or-brokers-roster__tools {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 0.75rem 1.25rem;
+  margin: 0 0 0.85rem;
+}
+
+.or-brokers-roster__tools .shiny-input-container {
+  margin-bottom: 0;
+}
+
+.or-brokers-roster__tools-col {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 0.75rem 1.1rem;
+}
+
+.or-brokers-roster__tools-col .shiny-options-group {
+  margin-top: 0.15rem;
+}
+
 .or-brokers-roster__table {
   overflow-x: auto;
 }
@@ -1916,9 +1939,18 @@ footer.footer {
 
 .or-brokers-roster__table .rt-th {
   border-bottom: 1px solid var(--or-line, #d1d5db);
-  white-space: normal;
-  line-height: 1.25;
+  white-space: normal !important;
+  line-height: 1.3;
   vertical-align: bottom;
+  overflow: visible !important;
+  text-overflow: unset !important;
+}
+
+.or-brokers-roster__table .rt-th .rt-th-inner,
+.or-brokers-roster__table .rt-th-content {
+  white-space: normal !important;
+  overflow: visible !important;
+  text-overflow: unset !important;
 }
 
 .or-brokers-roster__table .rt-th:last-child,
