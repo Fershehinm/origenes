@@ -1,7 +1,16 @@
-nombre,fecha_registro,canal,pertenece_equipo,generacion,nota
-Thelma Diaz,2025-12-31,Mauricio Sanchez,false,,No está en el API de embajadores
-Ines Torres,2026-01-14,,false,,En el API está como Ambassador NxtGen
-Ricardo Ramírez,2026-01-21,,false,,En el API está como Ambassador NxtGen
-Erick Adrián Trigueros lópez,2026-04-15,,false,,En el API está como Ambassador NxtGen
-Santiago Herrera,2026-05-05,,false,,En el API está como Ambassador NxtGen
-Diego Diaz,2026-05-05,,false,,En el API está como Ambassador NxtGen
+"nombre","fecha_registro","canal","pertenece_equipo","generacion","nota"
+"Thelma Diaz","2025-12-31","Mauricio Sanchez",FALSE,"","Sheets histórico (no en API)"
+"Ines Torres","2026-01-14","",FALSE,"","Sheets histórico (no en API)"
+"Ricardo Ramírez","2026-01-21","",FALSE,"","Sheets histórico (no en API)"
+"Erick Adrián Trigueros lópez","2026-04-15","",FALSE,"","Sheets histórico (no en API)"
+"Diego Diaz","2026-05-05","",FALSE,"","Sheets histórico (no en API)"
+"Santiago Herrera","2026-05-05","",FALSE,"","Sheets histórico (no en API)"
+"Victor Manuel Alcantara Avila","2026-10-15","",FALSE,"","Sheets histórico (no en API)"
+"Abraham Ramírez Rodríguez","2026-10-16","",FALSE,"","Sheets histórico (no en API)"
+"Chritian Motta","2026-10-16","",FALSE,"","Sheets histórico (no en API)"
+"María Fernanda Chirino Martinez","2026-10-16","",FALSE,"","Sheets histórico (no en API)"
+"Ricardo Joaquín Márquez Lucio","2026-10-16","",FALSE,"","Sheets histórico (no en API)"
+"Javier Ivan Borjas duran","2026-10-19","",TRUE,"","Sheets histórico (no en API)"
+"Leonardo Osorio","2026-10-19","",TRUE,"","Sheets histórico (no en API)"
+"Raúl Castellanos","2026-10-19","",FALSE,"","Sheets histórico (no en API)"
+"Verónica Cervantes Vázquez","2026-10-19","",FALSE,"","Sheets histórico (no en API)"
