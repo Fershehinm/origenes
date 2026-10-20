@@ -347,38 +347,73 @@ origenes_brokers_embajadores_tabla <- function(origin_obj,
   team_keys <- origenes_brokers_hub_team_keys(origin_obj)
   meetings <- origin_obj$meetings %||% tibble::tibble()
 
+  # Mapa persona → claves canónicas (app, conciliación, CRM).
+  person_keys <- tibble::tibble(
+    nombre_key = rep(roster$nombre_key, 3L),
+    canon = c(
+      origenes_brokers_canon_key(roster$nombre_app, alias),
+      origenes_brokers_canon_key(roster$nombre_key, alias),
+      origenes_brokers_canon_key(roster$conciliacion, alias)
+    )
+  ) |>
+    dplyr::filter(!is.na(.data$canon), nzchar(.data$canon)) |>
+    dplyr::distinct()
+
   act <- tibble::tibble(
-    .canon = character(),
+    nombre_key = character(),
     fecha_primera_cita = as.Date(character()),
     fecha_ultima_realizada = as.Date(character()),
     fecha_ultima_cita = as.Date(character())
   )
-  if (nrow(meetings) && "embajador" %in% names(meetings)) {
-    m <- meetings |>
-      dplyr::filter(!is.na(.data$fecha), !is.na(.data$embajador), nzchar(.data$embajador)) |>
-      dplyr::mutate(
-        fecha = as.Date(.data$fecha),
-        realizada = origenes_meeting_is_realizada(.data$status_os),
-        es_primera = dplyr::coalesce(as.logical(.data$first_meeting), FALSE),
-        .canon = origenes_brokers_canon_key(.data$embajador, alias)
-      )
-    if (nrow(m)) {
-      act <- m |>
-        dplyr::group_by(.data$.canon) |>
-        dplyr::summarise(
-          fecha_ultima_cita = as.Date(max(.data$fecha, na.rm = TRUE)),
-          fecha_primera_cita = {
-            fechas <- .data$fecha[.data$realizada & .data$es_primera]
-            if (length(fechas)) as.Date(min(fechas)) else as.Date(NA)
-          },
-          fecha_ultima_realizada = {
-            fechas <- .data$fecha[.data$realizada]
-            if (length(fechas)) as.Date(max(fechas)) else as.Date(NA)
-          },
-          .groups = "drop"
+  if (nrow(meetings) && nrow(person_keys)) {
+    name_cols <- intersect(
+      c("embajador", "embajador_raw", "embajador_hub_nombre", "embajador_bubble"),
+      names(meetings)
+    )
+    if (length(name_cols) && "fecha" %in% names(meetings)) {
+      m_base <- meetings |>
+        dplyr::filter(!is.na(.data$fecha)) |>
+        dplyr::mutate(
+          fecha = as.Date(.data$fecha),
+          realizada = if ("status_os" %in% names(meetings)) {
+            origenes_meeting_is_realizada(.data$status_os)
+          } else {
+            TRUE
+          }
         )
+      hits <- lapply(name_cols, function(col) {
+        tibble::tibble(
+          fecha = m_base$fecha,
+          realizada = m_base$realizada,
+          canon = origenes_brokers_canon_key(m_base[[col]], alias)
+        )
+      })
+      hits <- dplyr::bind_rows(hits) |>
+        dplyr::filter(!is.na(.data$canon), nzchar(.data$canon)) |>
+        dplyr::inner_join(person_keys, by = "canon", relationship = "many-to-many") |>
+        dplyr::distinct(.data$nombre_key, .data$fecha, .data$realizada)
+      if (nrow(hits)) {
+        act <- hits |>
+          dplyr::group_by(.data$nombre_key) |>
+          dplyr::summarise(
+            fecha_ultima_cita = as.Date(max(.data$fecha, na.rm = TRUE)),
+            # Primera realizada (no exige flag first_meeting del CRM).
+            fecha_primera_cita = {
+              fechas <- .data$fecha[.data$realizada]
+              if (length(fechas)) as.Date(min(fechas)) else as.Date(NA)
+            },
+            fecha_ultima_realizada = {
+              fechas <- .data$fecha[.data$realizada]
+              if (length(fechas)) as.Date(max(fechas)) else as.Date(NA)
+            },
+            .groups = "drop"
+          )
+      }
     }
   }
+
+  # Fallback CRM/Sheets histórico (brokers_canonical) para gen/grad/citas.
+  crm_fb <- origenes_brokers_crm_embajadores_fallback(root, alias)
 
   grad <- origenes_brokers_graduacion_map(root)
 
@@ -389,17 +424,26 @@ origenes_brokers_embajadores_tabla <- function(origin_obj,
   ) |>
     origenes_brokers_assign_fechas_cohorte(root = root)
 
-  match_key <- origenes_brokers_canon_key(
-    dplyr::coalesce(
-      dplyr::na_if(stringr::str_squish(as.character(roster$conciliacion)), ""),
-      stringr::str_squish(as.character(roster$nombre_app))
-    ),
-    alias
-  )
+  primera <- act$fecha_primera_cita[match(roster$nombre_key, act$nombre_key)]
+  ultima_real <- act$fecha_ultima_realizada[match(roster$nombre_key, act$nombre_key)]
+  ultima_any <- act$fecha_ultima_cita[match(roster$nombre_key, act$nombre_key)]
 
-  primera <- act$fecha_primera_cita[match(match_key, act$.canon)]
-  ultima_real <- act$fecha_ultima_realizada[match(match_key, act$.canon)]
-  ultima_any <- act$fecha_ultima_cita[match(match_key, act$.canon)]
+  # crm_fb$nombre_key es canon fold; cruzar por app y conciliación.
+  fb_idx <- if (nrow(crm_fb)) {
+    dplyr::coalesce(
+      match(origenes_brokers_canon_key(roster$nombre_app, alias), crm_fb$nombre_key),
+      match(origenes_brokers_canon_key(roster$conciliacion, alias), crm_fb$nombre_key),
+      match(origenes_brokers_canon_key(roster$nombre_key, alias), crm_fb$nombre_key)
+    )
+  } else {
+    rep(NA_integer_, nrow(roster))
+  }
+  if (nrow(crm_fb)) {
+    primera <- dplyr::coalesce(primera, crm_fb$fecha_primera_cita[fb_idx])
+    ultima_real <- dplyr::coalesce(ultima_real, crm_fb$fecha_ultima_cita_realizada[fb_idx])
+    ultima_any <- dplyr::coalesce(ultima_any, crm_fb$fecha_ultima_cita_cualquier[fb_idx])
+  }
+
   fecha_grad_ov <- if ("fecha_graduacion" %in% names(roster)) {
     suppressWarnings(as.Date(roster$fecha_graduacion))
   } else {
@@ -413,7 +457,21 @@ origenes_brokers_embajadores_tabla <- function(origin_obj,
   } else {
     as.Date(rep(NA, nrow(roster)))
   }
-  fecha_grad <- dplyr::coalesce(fecha_grad_ov, fecha_grad_sheet)
+  fecha_grad_crm <- if (nrow(crm_fb)) {
+    crm_fb$fecha_graduacion[fb_idx]
+  } else {
+    as.Date(rep(NA, nrow(roster)))
+  }
+  # Override/Sheets manual gana; CRM/canónico rellena huecos.
+  fecha_grad <- dplyr::coalesce(fecha_grad_ov, fecha_grad_sheet, fecha_grad_crm)
+
+  gen_ov <- dplyr::na_if(stringr::str_squish(as.character(roster$generacion %||% "")), "")
+  gen_crm <- if (nrow(crm_fb)) {
+    as.character(crm_fb$generacion[fb_idx])
+  } else {
+    rep(NA_character_, nrow(roster))
+  }
+  generacion <- dplyr::coalesce(gen_ov, dplyr::na_if(stringr::str_squish(gen_crm), ""))
 
   fechas_c <- cohorte$fechas_cohorte
   gen_reg <- vapply(fechas_c, function(s) {
@@ -424,6 +482,8 @@ origenes_brokers_embajadores_tabla <- function(origin_obj,
     }
     origenes_ym_label(min(as.Date(parts)))
   }, character(1))
+  # App Ambassadors: Gen Registro = mes de alta si no hay cohorte Sheets.
+  gen_reg <- dplyr::coalesce(gen_reg, origenes_ym_label(as.Date(roster$fecha_registro)))
 
   fecha_reg <- as.Date(roster$fecha_registro)
   ciclo <- as.integer(primera - fecha_reg)
@@ -432,7 +492,9 @@ origenes_brokers_embajadores_tabla <- function(origin_obj,
   dias[!is.finite(dias)] <- NA_integer_
 
   es_lider <- roster$nombre_key %in% team_keys |
-    brokers_norm_name(roster$conciliacion) %in% team_keys
+    brokers_norm_name(roster$conciliacion) %in% team_keys |
+    origenes_brokers_canon_key(roster$nombre_key, alias) %in%
+      origenes_brokers_canon_key(team_keys, alias)
 
   tibble::tibble(
     nombre_key = roster$nombre_key,
@@ -451,7 +513,7 @@ origenes_brokers_embajadores_tabla <- function(origin_obj,
     ),
     Canal = dplyr::coalesce(dplyr::na_if(stringr::str_squish(as.character(roster$canal)), ""), ""),
     `Fecha graduación` = origenes_fmt_date_sheets(fecha_grad),
-    Generación = dplyr::coalesce(dplyr::na_if(stringr::str_squish(as.character(roster$generacion)), ""), ""),
+    Generación = dplyr::coalesce(generacion, ""),
     `Fecha primera cita realizada` = origenes_fmt_date_sheets(primera),
     `Fecha de última cita realizada` = origenes_fmt_date_sheets(ultima_real),
     `Gen Registro` = dplyr::coalesce(gen_reg, ""),
@@ -464,6 +526,77 @@ origenes_brokers_embajadores_tabla <- function(origin_obj,
       dplyr::desc(.data$.fecha_reg),
       .data$Nombre,
       .data$nombre_key
+    )
+}
+
+#' Fallback gen/grad/citas desde brokers_canonical (CRM/Sheets histórico).
+origenes_brokers_crm_embajadores_fallback <- function(root = Sys.getenv("ORIGENES_APP_ROOT", "."),
+                                                      alias = NULL) {
+  empty <- tibble::tibble(
+    nombre_key = character(),
+    generacion = character(),
+    fecha_graduacion = as.Date(character()),
+    fecha_primera_cita = as.Date(character()),
+    fecha_ultima_cita_realizada = as.Date(character()),
+    fecha_ultima_cita_cualquier = as.Date(character())
+  )
+  path <- file.path(root, "data", "brokers", "canonical", "brokers_canonical.rds")
+  if (!file.exists(path)) {
+    return(empty)
+  }
+  can <- tryCatch(readRDS(path), error = function(e) NULL)
+  emb <- can$embajadores %||% NULL
+  if (is.null(emb) || !nrow(emb)) {
+    return(empty)
+  }
+  if (is.null(alias)) {
+    alias <- origenes_brokers_fold_alias(root)
+  }
+  first_nonempty <- function(x) {
+    x <- stringr::str_squish(as.character(x))
+    x <- x[!is.na(x) & nzchar(x)]
+    if (!length(x)) NA_character_ else x[[1L]]
+  }
+  tibble::tibble(
+    canon = c(
+      origenes_brokers_canon_key(emb$nombre_raw %||% emb$embajador, alias),
+      origenes_brokers_canon_key(emb$embajador %||% emb$nombre_raw, alias)
+    ),
+    generacion = rep(as.character(emb$generacion %||% NA_character_), 2L),
+    fecha_graduacion = rep(as.Date(emb$fecha_graduacion %||% NA), 2L),
+    fecha_primera_cita = rep(as.Date(emb$fecha_primera_cita %||% NA), 2L),
+    fecha_ultima_cita_realizada = rep(as.Date(emb$fecha_ultima_cita_realizada %||% NA), 2L),
+    fecha_ultima_cita_cualquier = rep(as.Date(emb$fecha_ultima_cita_cualquier %||% NA), 2L)
+  ) |>
+    dplyr::filter(!is.na(.data$canon), nzchar(.data$canon)) |>
+    dplyr::group_by(.data$canon) |>
+    dplyr::summarise(
+      generacion = first_nonempty(.data$generacion),
+      fecha_graduacion = {
+        d <- .data$fecha_graduacion[!is.na(.data$fecha_graduacion)]
+        if (!length(d)) as.Date(NA) else d[[1L]]
+      },
+      fecha_primera_cita = {
+        d <- .data$fecha_primera_cita[!is.na(.data$fecha_primera_cita)]
+        if (!length(d)) as.Date(NA) else min(d)
+      },
+      fecha_ultima_cita_realizada = {
+        d <- .data$fecha_ultima_cita_realizada[!is.na(.data$fecha_ultima_cita_realizada)]
+        if (!length(d)) as.Date(NA) else max(d)
+      },
+      fecha_ultima_cita_cualquier = {
+        d <- .data$fecha_ultima_cita_cualquier[!is.na(.data$fecha_ultima_cita_cualquier)]
+        if (!length(d)) as.Date(NA) else max(d)
+      },
+      .groups = "drop"
+    ) |>
+    dplyr::transmute(
+      nombre_key = .data$canon,
+      generacion = .data$generacion,
+      fecha_graduacion = .data$fecha_graduacion,
+      fecha_primera_cita = .data$fecha_primera_cita,
+      fecha_ultima_cita_realizada = .data$fecha_ultima_cita_realizada,
+      fecha_ultima_cita_cualquier = .data$fecha_ultima_cita_cualquier
     )
 }
 

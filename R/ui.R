@@ -470,14 +470,7 @@ origenes_brokers_embajadores_ui <- function() {
             "Filtrar",
             value = "",
             placeholder = "Contiene…",
-            width = "200px"
-          ),
-          shiny::radioButtons(
-            "brokers_roster_col_sort",
-            "Orden",
-            choices = c("Por defecto" = "", "Ascendente" = "asc", "Descendente" = "desc"),
-            selected = "",
-            inline = TRUE
+            width = "220px"
           )
         )
       )
@@ -570,7 +563,7 @@ origenes_ui <- function() {
     window_title = "Origin Analytics | División 2c",
     header = shiny::tags$head(
       shiny::tags$meta(name = "viewport", content = "width=device-width, initial-scale=1"),
-      shiny::tags$link(rel = "stylesheet", type = "text/css", href = "styles.css?v=43"),
+      shiny::tags$link(rel = "stylesheet", type = "text/css", href = "styles.css?v=44"),
       shiny::tags$script(htmltools::HTML(paste(
         "Shiny.addCustomMessageHandler('origenes-htmlwidgets-static-render', function(message) {",
         "  setTimeout(function() {",

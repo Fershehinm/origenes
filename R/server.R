@@ -998,19 +998,13 @@ origenes_server <- function(input, output, session) {
       show_all <- show_all[hit, , drop = FALSE]
     }
 
-    sort_dir <- as.character(input$brokers_roster_col_sort %||% "")
-    if (nzchar(col) && sort_dir %in% c("asc", "desc") && col %in% names(show_all)) {
-      ord <- order(show_all[[col]], decreasing = identical(sort_dir, "desc"), na.last = TRUE)
-      show_all <- show_all[ord, , drop = FALSE]
-    } else {
-      show_all <- show_all |>
-        dplyr::arrange(
-          dplyr::desc(.data$.fecha_reg),
-          .data$Nombre,
-          .data$nombre_key
-        )
-    }
-    show_all
+    # Orden por defecto; el usuario ordena picando el encabezado de columna.
+    show_all |>
+      dplyr::arrange(
+        dplyr::desc(.data$.fecha_reg),
+        .data$Nombre,
+        .data$nombre_key
+      )
   })
 
   shiny::observeEvent(
@@ -1065,19 +1059,12 @@ origenes_server <- function(input, output, session) {
     show <- utils::head(show_all, visible_n)
     keys <- as.character(show$nombre_key)
     header_style <- list(whiteSpace = "normal", lineHeight = "1.3")
-    # Orden por clic en encabezado: Fecha de registro es Date (.fecha_reg).
-    default_sorted <- list(.fecha_reg = "desc", Nombre = "asc")
-    col <- as.character(input$brokers_roster_col %||% "")
-    sort_dir <- as.character(input$brokers_roster_col_sort %||% "")
-    if (nzchar(col) && sort_dir %in% c("asc", "desc") && col %in% names(show)) {
-      default_sorted <- stats::setNames(list(sort_dir), col)
-    }
     reactable::reactable(
       show,
       filterable = FALSE,
       searchable = FALSE,
       pagination = FALSE,
-      defaultSorted = default_sorted,
+      defaultSorted = list(.fecha_reg = "desc", Nombre = "asc"),
       highlight = TRUE,
       compact = TRUE,
       wrap = FALSE,
