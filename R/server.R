@@ -1046,15 +1046,18 @@ origenes_server <- function(input, output, session) {
         .fecha_reg = reactable::colDef(show = FALSE),
         `Fecha de registro` = reactable::colDef(
           name = "Fecha de registro",
-          minWidth = 110,
+          minWidth = 118,
           sortable = FALSE
         ),
-        Nombre = reactable::colDef(name = "Nombre", minWidth = 160),
-        `Pertenece a un equipo` = reactable::colDef(name = "Pertenece a un equipo", minWidth = 90),
-        Role = reactable::colDef(name = "Role", minWidth = 100),
+        Nombre = reactable::colDef(name = "Nombre", minWidth = 170),
+        `Pertenece a un equipo` = reactable::colDef(
+          name = "Pertenece a un equipo",
+          minWidth = 118
+        ),
+        Role = reactable::colDef(name = "Role", minWidth = 110),
         `Conciliacion Nombre` = reactable::colDef(
           name = "Conciliacion Nombre",
-          minWidth = 200,
+          minWidth = 210,
           html = TRUE,
           cell = function(value, index) {
             key <- show$nombre_key[[index]]
@@ -1074,7 +1077,7 @@ origenes_server <- function(input, output, session) {
         ),
         `Fecha graduación` = reactable::colDef(
           name = "Fecha graduación",
-          minWidth = 120,
+          minWidth = 128,
           html = TRUE,
           cell = function(value, index) {
             key <- show$nombre_key[[index]]
@@ -1088,7 +1091,7 @@ origenes_server <- function(input, output, session) {
         ),
         Generación = reactable::colDef(
           name = "Generación",
-          minWidth = 110,
+          minWidth = 100,
           html = TRUE,
           cell = function(value, index) {
             key <- show$nombre_key[[index]]

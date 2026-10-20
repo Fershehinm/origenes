@@ -1902,6 +1902,34 @@ footer.footer {
   overflow-x: auto;
 }
 
+.or-brokers-roster__table .rt-table {
+  border-collapse: separate;
+  border-spacing: 0;
+}
+
+.or-brokers-roster__table .rt-th,
+.or-brokers-roster__table .rt-td {
+  border-right: 1px solid var(--or-line, #e5e7eb);
+  padding-left: 0.55rem;
+  padding-right: 0.55rem;
+}
+
+.or-brokers-roster__table .rt-th {
+  border-bottom: 1px solid var(--or-line, #d1d5db);
+  white-space: normal;
+  line-height: 1.25;
+  vertical-align: bottom;
+}
+
+.or-brokers-roster__table .rt-th:last-child,
+.or-brokers-roster__table .rt-td:last-child {
+  border-right: 0;
+}
+
+.or-brokers-roster__table .rt-tr:not(:last-child) .rt-td {
+  border-bottom: 1px solid color-mix(in srgb, var(--or-line, #e5e7eb) 70%, transparent);
+}
+
 .or-brokers-roster__table .or-roster-select,
 .or-brokers-roster__table .or-roster-input {
   width: 100%;

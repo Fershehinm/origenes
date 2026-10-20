@@ -936,12 +936,30 @@ origenes_brokers_roster_build <- function(origin_obj,
 
   crm_names <- origenes_brokers_conciliacion_choices(origin_obj)
   team_keys <- origenes_brokers_hub_team_keys(origin_obj)
+  alias <- origenes_brokers_fold_alias(root)
+
+  # Nombre = como viene en Ambassadors (nombre_raw). Conciliación = CRM / mapa.
   nombre_app <- dplyr::coalesce(
     dplyr::na_if(stringr::str_squish(as.character(emb$nombre_raw)), ""),
     stringr::str_squish(as.character(emb$nombre))
   )
+  nombre_crm <- stringr::str_squish(as.character(emb$nombre %||% ""))
+  crm_keys <- brokers_norm_name(crm_names)
+  crm_idx <- match(brokers_norm_name(nombre_crm), crm_keys)
+  conciliacion_crm <- ifelse(!is.na(crm_idx), crm_names[crm_idx], NA_character_)
   auto <- origenes_brokers_auto_conciliacion(nombre_app, crm_names)
   app_key <- brokers_norm_name(nombre_app)
+  # Una persona = mismo nombre CRM / alias (p. ej. Daniel Pascal ≡ Daniel Cobo Pascal).
+  person_key <- origenes_brokers_canon_key(
+    dplyr::coalesce(dplyr::na_if(nombre_crm, ""), nombre_app),
+    alias
+  )
+
+  first_nonempty <- function(x) {
+    x <- stringr::str_squish(as.character(x))
+    x <- x[!is.na(x) & nzchar(x)]
+    if (!length(x)) NA_character_ else x[[1L]]
+  }
 
   ov <- overrides |>
     dplyr::select(
@@ -969,31 +987,59 @@ origenes_brokers_roster_build <- function(origin_obj,
   }
   excluded_keys <- ov$nombre_key[dplyr::coalesce(as.logical(ov$ov_excluido), FALSE)]
 
-  alias <- origenes_brokers_fold_alias(root)
+  # Overrides de aliases del mismo embajador se fusionan (p. ej. daniel pascal + cobo).
+  ov <- ov |>
+    dplyr::mutate(
+      person_key = origenes_brokers_canon_key(.data$nombre_key, alias)
+    ) |>
+    dplyr::group_by(.data$person_key) |>
+    dplyr::summarise(
+      ov_conciliacion = first_nonempty(.data$ov_conciliacion),
+      ov_canal = first_nonempty(.data$ov_canal),
+      ov_pertenece = {
+        v <- as.logical(.data$ov_pertenece)
+        v <- v[!is.na(v)]
+        if (!length(v)) NA else v[[1L]]
+      },
+      ov_pertenece_manual = any(
+        dplyr::coalesce(as.logical(.data$ov_pertenece_manual), FALSE)
+      ),
+      ov_generacion = first_nonempty(.data$ov_generacion),
+      ov_fecha_graduacion = first_nonempty(.data$ov_fecha_graduacion),
+      ov_gen_registro = first_nonempty(.data$ov_gen_registro),
+      ov_excluido = any(dplyr::coalesce(as.logical(.data$ov_excluido), FALSE)),
+      .groups = "drop"
+    )
+
   canal_sheet <- origenes_brokers_sheets_canal(root)
   grad_sheet <- origenes_brokers_graduacion_map(root)
   roster <- tibble::tibble(
     amb_contact_id = as.character(emb$amb_contact_id %||% NA_character_),
+    person_key = person_key,
     nombre_key = app_key,
     nombre_app = nombre_app,
+    conciliacion_crm = conciliacion_crm,
     conciliacion_auto = auto,
     fecha_registro = as.Date(emb$fecha_registro)
   ) |>
-    dplyr::left_join(ov, by = "nombre_key") |>
+    dplyr::left_join(ov, by = "person_key") |>
     dplyr::mutate(
       conciliacion = dplyr::coalesce(
         dplyr::na_if(stringr::str_squish(as.character(.data$ov_conciliacion)), ""),
+        dplyr::na_if(stringr::str_squish(as.character(.data$conciliacion_crm)), ""),
         .data$conciliacion_auto,
         .data$nombre_app
       ),
       canal = dplyr::coalesce(
         dplyr::na_if(stringr::str_squish(as.character(.data$ov_canal)), ""),
+        unname(canal_sheet[.data$person_key]),
         unname(canal_sheet[origenes_brokers_canon_key(.data$nombre_key, alias)])
       ),
       # Manual del UI gana; si no, líderes de equipo del hub; si no, override/seed.
       pertenece_equipo = dplyr::case_when(
         dplyr::coalesce(as.logical(.data$ov_pertenece_manual), FALSE) ~
           dplyr::coalesce(as.logical(.data$ov_pertenece), FALSE),
+        .data$person_key %in% origenes_brokers_canon_key(team_keys, alias) ~ TRUE,
         .data$nombre_key %in% team_keys ~ TRUE,
         !is.na(.data$ov_pertenece) ~ as.logical(.data$ov_pertenece),
         TRUE ~ FALSE
@@ -1002,6 +1048,11 @@ origenes_brokers_roster_build <- function(origin_obj,
       fecha_graduacion = {
         ov_d <- suppressWarnings(as.Date(.data$ov_fecha_graduacion))
         n <- length(ov_d)
+        sheet_by_person <- if (nrow(grad_sheet)) {
+          grad_sheet$fecha_graduacion[match(.data$person_key, grad_sheet$embajador_key)]
+        } else {
+          as.Date(rep(NA, n))
+        }
         sheet_by_app <- if (nrow(grad_sheet)) {
           grad_sheet$fecha_graduacion[match(.data$nombre_key, grad_sheet$embajador_key)]
         } else {
@@ -1015,23 +1066,42 @@ origenes_brokers_roster_build <- function(origin_obj,
         } else {
           as.Date(rep(NA, n))
         }
-        dplyr::coalesce(ov_d, sheet_by_app, sheet_by_conc)
+        dplyr::coalesce(ov_d, sheet_by_person, sheet_by_app, sheet_by_conc)
       },
       gen_registro = dplyr::na_if(stringr::str_squish(as.character(.data$ov_gen_registro)), ""),
       fuente_conciliacion = dplyr::case_when(
         !is.na(.data$ov_conciliacion) & nzchar(.data$ov_conciliacion) ~ "manual",
+        !is.na(.data$conciliacion_crm) & nzchar(.data$conciliacion_crm) ~ "crm",
         !is.na(.data$conciliacion_auto) & nzchar(.data$conciliacion_auto) ~ "auto",
         TRUE ~ "nombre_app"
       ),
       .excluido = dplyr::coalesce(as.logical(.data$ov_excluido), FALSE)
     ) |>
     dplyr::filter(!.data$.excluido) |>
-    dplyr::select(
-      "amb_contact_id", "nombre_key", "nombre_app", "conciliacion", "conciliacion_auto",
-      "canal", "pertenece_equipo", "generacion", "fecha_graduacion", "gen_registro",
-      "fecha_registro", "fuente_conciliacion"
-    ) |>
-    dplyr::distinct(.data$nombre_key, .keep_all = TRUE)
+    dplyr::arrange(.data$fecha_registro, .data$nombre_app, .data$amb_contact_id) |>
+    dplyr::group_by(.data$person_key) |>
+    dplyr::summarise(
+      amb_contact_id = dplyr::first(.data$amb_contact_id),
+      # Clave de edición = nombre de app (primera inscripción Ambassadors).
+      nombre_key = brokers_norm_name(dplyr::first(.data$nombre_app)),
+      nombre_app = dplyr::first(.data$nombre_app),
+      conciliacion = first_nonempty(.data$conciliacion),
+      conciliacion_auto = first_nonempty(.data$conciliacion_auto),
+      canal = first_nonempty(.data$canal),
+      pertenece_equipo = any(dplyr::coalesce(.data$pertenece_equipo, FALSE)),
+      generacion = first_nonempty(.data$generacion),
+      fecha_graduacion = {
+        d <- .data$fecha_graduacion[!is.na(.data$fecha_graduacion)]
+        if (!length(d)) as.Date(NA) else d[[1L]]
+      },
+      gen_registro = first_nonempty(.data$gen_registro),
+      fecha_registro = {
+        d <- .data$fecha_registro[!is.na(.data$fecha_registro)]
+        if (!length(d)) as.Date(NA) else min(d)
+      },
+      fuente_conciliacion = dplyr::first(.data$fuente_conciliacion),
+      .groups = "drop"
+    )
 
   hist <- origenes_brokers_load_historicos(root)
   if (nrow(hist)) {
