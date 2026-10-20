@@ -274,29 +274,45 @@ origenes_brokers_select_cell <- function(key, field, value, choices, allow_empty
   )
 }
 
-#' Input de texto por fila (fecha / generación libre) → brokers_roster_cell_edit.
+#' Input de texto por fila (fecha / generación / conciliación / canal).
+#' Devuelve HTML string (más barato que tags htmltools × cientos de filas).
 origenes_brokers_text_cell <- function(key,
                                        field,
                                        value,
                                        placeholder = "",
                                        list_id = NULL) {
-  key <- as.character(key %||% "")
-  value <- as.character(value %||% "")
-  htmltools::tags$input(
-    type = "text",
-    class = "or-roster-input",
-    value = value,
-    placeholder = placeholder,
-    `data-key` = key,
-    `data-field` = field,
-    list = list_id,
-    onchange = paste0(
-      "Shiny.setInputValue('brokers_roster_cell_edit',",
-      "{key:this.getAttribute('data-key'),",
-      "field:this.getAttribute('data-field'),",
-      "value:this.value,nonce:Date.now()},{priority:'event'})"
-    )
+  key <- htmltools::htmlEscape(as.character(key %||% ""), attribute = TRUE)
+  field <- htmltools::htmlEscape(as.character(field %||% ""), attribute = TRUE)
+  value <- htmltools::htmlEscape(as.character(value %||% ""), attribute = TRUE)
+  placeholder <- htmltools::htmlEscape(as.character(placeholder %||% ""), attribute = TRUE)
+  list_attr <- if (!is.null(list_id) && nzchar(list_id)) {
+    paste0(' list="', htmltools::htmlEscape(list_id, attribute = TRUE), '"')
+  } else {
+    ""
+  }
+  paste0(
+    '<input type="text" class="or-roster-input" value="', value, '"',
+    ' placeholder="', placeholder, '"',
+    ' data-key="', key, '" data-field="', field, '"',
+    list_attr,
+    " onchange=\"Shiny.setInputValue('brokers_roster_cell_edit',",
+    "{key:this.getAttribute('data-key'),",
+    "field:this.getAttribute('data-field'),",
+    "value:this.value,nonce:Date.now()},{priority:'event'})\" />"
   )
+}
+
+#' Datalist HTML compartido (una sola vez en la página).
+origenes_brokers_datalist_html <- function(id, choices) {
+  choices <- unique(as.character(choices))
+  choices <- choices[!is.na(choices) & nzchar(stringr::str_squish(choices))]
+  opts <- paste0(
+    '<option value="',
+    htmltools::htmlEscape(choices, attribute = TRUE),
+    '"></option>',
+    collapse = ""
+  )
+  paste0('<datalist id="', htmltools::htmlEscape(id, attribute = TRUE), '">', opts, "</datalist>")
 }
 
 #' Tabla Embajadores alineada al Sheets (una fila por persona registrada).
@@ -1102,8 +1118,12 @@ origenes_brokers_sheets_gen_registro <- function(root = Sys.getenv("ORIGENES_APP
 }
 
 origenes_brokers_auto_conciliacion <- function(nombre_app, crm_names) {
+  n <- length(nombre_app)
+  if (!n) {
+    return(character())
+  }
   if (!length(crm_names)) {
-    return(rep(NA_character_, length(nombre_app)))
+    return(rep(NA_character_, n))
   }
   lista <- tibble::tibble(
     embajador = stringr::str_squish(as.character(crm_names)),
@@ -1112,13 +1132,23 @@ origenes_brokers_auto_conciliacion <- function(nombre_app, crm_names) {
     dplyr::filter(!is.na(.data$embajador_key), nzchar(.data$embajador_key)) |>
     dplyr::distinct(.data$embajador_key, .keep_all = TRUE)
 
-  vapply(
-    brokers_norm_name(nombre_app),
-    origenes_match_key_to_lista,
-    character(1),
-    lista_keys = lista$embajador_key,
-    lista_names = lista$embajador
-  )
+  keys <- brokers_norm_name(nombre_app)
+  out <- rep(NA_character_, n)
+  # Match exacto vectorizado; fuzzy solo para los que faltan.
+  exact <- match(keys, lista$embajador_key)
+  hit <- !is.na(exact)
+  out[hit] <- lista$embajador[exact[hit]]
+  miss <- which(!hit & !is.na(keys) & nzchar(keys))
+  if (length(miss)) {
+    out[miss] <- vapply(
+      keys[miss],
+      origenes_match_key_to_lista,
+      character(1),
+      lista_keys = lista$embajador_key,
+      lista_names = lista$embajador
+    )
+  }
+  out
 }
 
 #' Roster completo para la pestaña Embajadores (Brokers).
@@ -1144,8 +1174,10 @@ origenes_brokers_roster_build <- function(origin_obj,
   if (is.null(overrides)) {
     overrides <- origenes_brokers_load_overrides(root)
   }
-  # Carga histórica del Sheets: rellena conciliación/canal/gen/grad vacíos.
-  overrides <- origenes_brokers_merge_overrides_with_sheets(overrides, root)
+  # Sheets solo si aún no hay overrides (la carga histórica ya vive en el CSV).
+  if (!nrow(overrides)) {
+    overrides <- origenes_brokers_merge_overrides_with_sheets(overrides, root)
+  }
 
   crm_names <- origenes_brokers_conciliacion_choices(origin_obj)
   team_keys <- origenes_brokers_hub_team_keys(origin_obj)
@@ -1332,8 +1364,7 @@ origenes_brokers_roster_build <- function(origin_obj,
     )
 
   alias <- origenes_brokers_fold_alias(root)
-  # Excluir también nombre_raw del API (antes del colapso), p. ej. Maria Jose
-  # como raw de Maria De Los Angeles.
+  # Históricos ya persistidos (no re-leer el Sheets en cada request).
   ya <- unique(c(
     origenes_brokers_canon_key(roster$nombre_app, alias),
     origenes_brokers_canon_key(roster$nombre_key, alias),
@@ -1341,7 +1372,8 @@ origenes_brokers_roster_build <- function(origin_obj,
     origenes_brokers_canon_key(emb$nombre, alias),
     origenes_brokers_canon_key(emb$nombre_raw, alias)
   ))
-  hist <- origenes_brokers_sync_historicos_from_sheets(ya, root)
+  hist <- origenes_brokers_load_historicos(root)
+  hist <- hist[!hist$canon %in% ya, , drop = FALSE]
   if (nrow(hist)) {
     ov_hist <- overrides |>
       dplyr::mutate(person_key = origenes_brokers_canon_key(.data$nombre_key, alias))

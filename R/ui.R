@@ -423,16 +423,17 @@ origenes_nxtgen_ui <- function() {
 }
 
 origenes_brokers_embajadores_ui <- function() {
+  canal_opts <- origenes_brokers_canal_choices()
   shiny::div(
     class = "or-brokers-roster",
     shiny::div(
       class = "or-brokers-roster__intro",
       shiny::h2("Embajadores")
     ),
-    htmltools::tags$datalist(
-      id = "brokers_gen_choices",
-      lapply(paste("Gen", seq_len(5L)), function(g) htmltools::tags$option(value = g))
-    ),
+    # Datalists únicos (no repetir <option> en cada fila).
+    htmltools::HTML(origenes_brokers_datalist_html("brokers_gen_choices", paste("Gen", seq_len(5L)))),
+    htmltools::HTML(origenes_brokers_datalist_html("brokers_canal_choices", canal_opts)),
+    shiny::uiOutput("brokers_crm_datalist"),
     shiny::div(
       class = "or-metric-table-wrap or-brokers-roster__table",
       reactable::reactableOutput("brokers_roster_table", width = "100%")
@@ -521,7 +522,7 @@ origenes_ui <- function() {
     window_title = "Origin Analytics | División 2c",
     header = shiny::tags$head(
       shiny::tags$meta(name = "viewport", content = "width=device-width, initial-scale=1"),
-      shiny::tags$link(rel = "stylesheet", type = "text/css", href = "styles.css?v=41"),
+      shiny::tags$link(rel = "stylesheet", type = "text/css", href = "styles.css?v=42"),
       shiny::tags$script(htmltools::HTML(paste(
         "Shiny.addCustomMessageHandler('origenes-htmlwidgets-static-render', function(message) {",
         "  setTimeout(function() {",

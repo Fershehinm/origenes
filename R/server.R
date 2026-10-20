@@ -968,7 +968,14 @@ origenes_server <- function(input, output, session) {
     )
   })
 
+  output$brokers_crm_datalist <- shiny::renderUI({
+    shiny::req(identical(input$brokers_subtab %||% "", "embajadores"))
+    crm <- origenes_brokers_conciliacion_choices(brokers_origin_obj())
+    htmltools::HTML(origenes_brokers_datalist_html("brokers_crm_choices", crm))
+  })
+
   output$brokers_roster_load_more_ui <- shiny::renderUI({
+    shiny::req(identical(input$brokers_subtab %||% "", "embajadores"))
     show <- brokers_roster_show()
     shiny::req(nrow(show) > 0)
     visible <- min(brokers_roster_visible_n(), nrow(show))
@@ -1003,14 +1010,14 @@ origenes_server <- function(input, output, session) {
   })
 
   output$brokers_roster_table <- reactable::renderReactable({
+    # No construir la tabla hasta abrir la pestaña (evita colgar el arranque).
+    shiny::req(identical(input$brokers_subtab %||% "", "embajadores"))
     show_all <- brokers_roster_show()
     shiny::req(nrow(show_all) > 0)
-    origin <- brokers_origin_obj()
-    crm <- origenes_brokers_conciliacion_choices(origin)
-    canales <- origenes_brokers_canal_choices()
     visible_n <- min(brokers_roster_visible_n(), nrow(show_all))
     show <- utils::head(show_all, visible_n) |>
       dplyr::mutate(quitar = .data$nombre_key, .before = 1L)
+    keys <- as.character(show$nombre_key)
     reactable::reactable(
       show,
       filterable = TRUE,
@@ -1027,18 +1034,14 @@ origenes_server <- function(input, output, session) {
           filterable = FALSE,
           width = 44,
           align = "center",
+          html = TRUE,
           cell = function(value) {
-            shiny::tags$button(
-              type = "button",
-              class = "or-roster-delete",
-              title = "Eliminar",
-              `aria-label` = "Eliminar",
-              `data-key` = value,
-              onclick = paste(
-                "Shiny.setInputValue('brokers_roster_delete_key',",
-                "this.getAttribute('data-key'), {priority: 'event'})"
-              ),
-              "\u00d7"
+            k <- htmltools::htmlEscape(as.character(value %||% ""), attribute = TRUE)
+            paste0(
+              '<button type="button" class="or-roster-delete" title="Eliminar"',
+              ' aria-label="Eliminar" data-key="', k, '"',
+              " onclick=\"Shiny.setInputValue('brokers_roster_delete_key',",
+              "this.getAttribute('data-key'),{priority:'event'})\">\u00d7</button>"
             )
           }
         ),
@@ -1060,10 +1063,13 @@ origenes_server <- function(input, output, session) {
           minWidth = 210,
           html = TRUE,
           cell = function(value, index) {
-            key <- show$nombre_key[[index]]
-            choices <- sort(unique(c(crm, value)))
-            choices <- choices[!is.na(choices) & nzchar(choices)]
-            origenes_brokers_select_cell(key, "conciliacion", value, choices)
+            origenes_brokers_text_cell(
+              keys[[index]],
+              "conciliacion",
+              value %||% "",
+              placeholder = "Elegir o escribir",
+              list_id = "brokers_crm_choices"
+            )
           }
         ),
         Canal = reactable::colDef(
@@ -1071,8 +1077,13 @@ origenes_server <- function(input, output, session) {
           minWidth = 160,
           html = TRUE,
           cell = function(value, index) {
-            key <- show$nombre_key[[index]]
-            origenes_brokers_select_cell(key, "canal", value, canales)
+            origenes_brokers_text_cell(
+              keys[[index]],
+              "canal",
+              value %||% "",
+              placeholder = "Canal",
+              list_id = "brokers_canal_choices"
+            )
           }
         ),
         `Fecha graduación` = reactable::colDef(
@@ -1080,9 +1091,8 @@ origenes_server <- function(input, output, session) {
           minWidth = 128,
           html = TRUE,
           cell = function(value, index) {
-            key <- show$nombre_key[[index]]
             origenes_brokers_text_cell(
-              key,
+              keys[[index]],
               "fecha_graduacion",
               value %||% "",
               placeholder = "dd/mm/yyyy"
@@ -1094,9 +1104,8 @@ origenes_server <- function(input, output, session) {
           minWidth = 100,
           html = TRUE,
           cell = function(value, index) {
-            key <- show$nombre_key[[index]]
             origenes_brokers_text_cell(
-              key,
+              keys[[index]],
               "generacion",
               value %||% "",
               placeholder = "Gen 1",

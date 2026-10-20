@@ -1944,6 +1944,11 @@ footer.footer {
 }
 
 .or-brokers-roster__table .or-roster-input {
+  max-width: 14rem;
+}
+
+.or-brokers-roster__table .or-roster-input[data-field="fecha_graduacion"],
+.or-brokers-roster__table .or-roster-input[data-field="generacion"] {
   max-width: 8.5rem;
 }
 
