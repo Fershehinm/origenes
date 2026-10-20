@@ -69,7 +69,9 @@ origenes_ventas_table <- function(origin_key,
                                   start = NULL,
                                   end = NULL,
                                   root = Sys.getenv("ORIGENES_APP_ROOT", "."),
-                                  rscg = NULL) {
+                                  rscg = NULL,
+                                  joined = NULL,
+                                  embajador_keys = NULL) {
   origin_key <- origenes_origin_key(origin_key)
   defaults <- origenes_default_date_range()
   start <- as.Date(start %||% defaults$start)
@@ -123,6 +125,40 @@ origenes_ventas_table <- function(origin_key,
 
   if (!nrow(sales)) {
     return(origenes_ventas_empty())
+  }
+
+  # Brokers: filtrar por embajador vía 1ª cita del lead (mismo criterio que Analytics).
+  if (!is.null(embajador_keys) && length(embajador_keys) && !is.null(joined)) {
+    origin_obj <- joined$origins[[origin_key]]
+    meetings <- origin_obj$meetings %||% tibble::tibble()
+    if (nrow(meetings) && "lead_contact_id" %in% names(meetings)) {
+      alias <- origenes_brokers_fold_alias(root)
+      keys <- unique(origenes_brokers_canon_key(embajador_keys, alias))
+      keys <- keys[!is.na(keys) & nzchar(keys)]
+      primera <- meetings[
+        dplyr::coalesce(as.logical(meetings$first_meeting), FALSE) &
+          !is.na(meetings$fecha) &
+          !is.na(meetings$lead_contact_id) &
+          nzchar(meetings$lead_contact_id),
+        ,
+        drop = FALSE
+      ]
+      if (nrow(primera)) {
+        primera <- primera[order(as.Date(primera$fecha)), , drop = FALSE]
+        primera <- primera[!duplicated(primera$lead_contact_id), , drop = FALSE]
+        owners <- stats::setNames(
+          origenes_brokers_canon_key(primera$embajador %||% NA_character_, alias),
+          origenes_id_norm(primera$lead_contact_id)
+        )
+        sale_owner <- unname(owners[sales$client_contact_id])
+        sales <- sales[!is.na(sale_owner) & sale_owner %in% keys, , drop = FALSE]
+        if (!nrow(sales)) {
+          return(origenes_ventas_empty())
+        }
+      } else {
+        return(origenes_ventas_empty())
+      }
+    }
   }
 
   props <- if (nrow(props_raw)) {

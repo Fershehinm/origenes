@@ -642,7 +642,7 @@ brokers_active_window_days <- function() {
 }
 
 brokers_default_start <- function() {
-  as.Date("2025-12-01")
+  as.Date("2026-01-01")
 }
 
 brokers_default_end <- function(as_of = Sys.Date()) {

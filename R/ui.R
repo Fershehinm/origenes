@@ -269,7 +269,7 @@ origenes_detail_panel_shell <- function(kind_label,
   }
   shiny::div(
     class = paste0("or-", tolower(kind_label)),
-    shiny::uiOutput(header_id),
+    # header_id se conserva por compatibilidad; ya no mostramos la franja de fechas.
     insights_ui,
     metric_ui,
     bslib::card(
@@ -512,42 +512,55 @@ origenes_brokers_persona_filter_ui <- function() {
 }
 
 origenes_brokers_ui <- function() {
-  origenes_origin_shell(
-    kicker = "ORIGEN 02",
-    title = "Brokers",
-    filter_prefix = "brokers",
-    subtab_id = "brokers_subtab",
-    panels = list(
-      bslib::nav_panel(
-        "Analytics",
-        value = "resumen",
-        origenes_brokers_persona_filter_ui(),
-        origenes_metric_table_ui("Embajadores", output_id = "brokers_tbl_embajadores"),
-        origenes_metric_table_ui("Actividad", output_id = "brokers_tbl_resultados"),
-        origenes_metric_table_ui("Citas por generación", output_id = "brokers_tbl_conversion")
-      ),
-      bslib::nav_panel(
-        "Embajadores",
-        value = "embajadores",
-        origenes_brokers_embajadores_ui()
-      ),
-      bslib::nav_panel(
-        "Citas",
-        value = "citas",
-        origenes_detail_panel_shell(
-          "CITAS", "Citas",
-          header_id = "brokers_citas_header", table_id = "brokers_tbl_citas",
-          insights_ui = origenes_citas_insights_ui("brokers", include_postgrad = TRUE)
-        )
-      ),
-      bslib::nav_panel(
-        "Ventas",
-        value = "ventas",
-        origenes_detail_panel_shell(
-          "VENTAS", "Ventas",
-          header_id = "brokers_ventas_header", table_id = "brokers_tbl_ventas",
-          insights_ui = origenes_ventas_insights_ui("brokers"),
-          table_kind = "ventas_cierre"
+  shiny::div(
+    class = "or-page or-dashboard",
+    shiny::div(
+      class = "or-dashboard__header",
+      shiny::div(
+        shiny::span(class = "or-kicker", "ORIGEN 02"),
+        shiny::h1("Brokers")
+      )
+    ),
+    origenes_periodo_filter_ui("brokers"),
+    # Canal / Embajador en Analytics, Citas y Ventas (no en roster Embajadores).
+    shiny::conditionalPanel(
+      condition = "input.brokers_subtab !== 'embajadores'",
+      origenes_brokers_persona_filter_ui()
+    ),
+    do.call(
+      bslib::navset_underline,
+      list(
+        id = "brokers_subtab",
+        bslib::nav_panel(
+          "Analytics",
+          value = "resumen",
+          origenes_metric_table_ui("Embajadores", output_id = "brokers_tbl_embajadores"),
+          origenes_metric_table_ui("Actividad", output_id = "brokers_tbl_resultados"),
+          origenes_metric_table_ui("Citas por generación", output_id = "brokers_tbl_conversion")
+        ),
+        bslib::nav_panel(
+          "Embajadores",
+          value = "embajadores",
+          origenes_brokers_embajadores_ui()
+        ),
+        bslib::nav_panel(
+          "Citas",
+          value = "citas",
+          origenes_detail_panel_shell(
+            "CITAS", "Citas",
+            header_id = "brokers_citas_header", table_id = "brokers_tbl_citas",
+            insights_ui = origenes_citas_insights_ui("brokers", include_postgrad = TRUE)
+          )
+        ),
+        bslib::nav_panel(
+          "Ventas",
+          value = "ventas",
+          origenes_detail_panel_shell(
+            "VENTAS", "Ventas",
+            header_id = "brokers_ventas_header", table_id = "brokers_tbl_ventas",
+            insights_ui = origenes_ventas_insights_ui("brokers"),
+            table_kind = "ventas_cierre"
+          )
         )
       )
     )
@@ -563,7 +576,7 @@ origenes_ui <- function() {
     window_title = "Origin Analytics | División 2c",
     header = shiny::tags$head(
       shiny::tags$meta(name = "viewport", content = "width=device-width, initial-scale=1"),
-      shiny::tags$link(rel = "stylesheet", type = "text/css", href = "styles.css?v=44"),
+      shiny::tags$link(rel = "stylesheet", type = "text/css", href = "styles.css?v=45"),
       shiny::tags$script(htmltools::HTML(paste(
         "Shiny.addCustomMessageHandler('origenes-htmlwidgets-static-render', function(message) {",
         "  setTimeout(function() {",

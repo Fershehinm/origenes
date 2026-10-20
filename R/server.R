@@ -26,15 +26,9 @@ origenes_resumen_header_ui <- function(bundle, prefix) {
     return(origenes_empty_ui())
   }
   k <- bundle$kpis
-  gran_label <- origenes_period_label_es(bundle$granularity %||% "mensual")
   active_days <- tryCatch(brokers_active_window_days(), error = function(e) 30L)
   shiny::div(
     class = "or-resumen",
-    origenes_period_header_ui(
-      "PERIODO",
-      origenes_format_date_range_label(bundle$span$start, bundle$span$end),
-      paste("Vista", tolower(gran_label))
-    ),
     origenes_resumen_section(
       "01",
       "Embajadores",
@@ -133,27 +127,7 @@ origenes_bind_origin_server <- function(prefix,
     ventas_charts_reactive <- ventas_reactive
   }
 
-  # --- Headers / KPIs ------------------------------------------------------
-  output[[paste0(prefix, "_citas_header")]] <- shiny::renderUI({
-    full <- citas_reactive()
-    dr <- date_range_reactive()
-    origenes_period_header_ui(
-      "CITAS",
-      origenes_format_date_range_label(dr$start, dr$end),
-      paste(nrow(full), "filas")
-    )
-  })
-
-  output[[paste0(prefix, "_ventas_header")]] <- shiny::renderUI({
-    full <- ventas_reactive()
-    dr <- date_range_reactive()
-    origenes_period_header_ui(
-      "VENTAS",
-      origenes_format_date_range_label(dr$start, dr$end),
-      paste(nrow(full), "filas")
-    )
-  })
-
+  # --- KPIs (sin franja de fechas) ----------------------------------------
   output[[paste0(prefix, "_citas_kpis")]] <- shiny::renderUI({
     origenes_citas_kpis_ui(origenes_citas_kpis(citas_reactive()), prefix)
   })
@@ -1311,7 +1285,9 @@ origenes_server <- function(input, output, session) {
       "broker",
       start = dr$start,
       end = dr$end,
-      rscg = rscg_bundle()
+      rscg = rscg_bundle(),
+      joined = joined(),
+      embajador_keys = brokers_persona_keys()
     )
   })
 
@@ -1354,7 +1330,8 @@ origenes_server <- function(input, output, session) {
       start = dr$start,
       end = dr$end,
       rscg = rscg_bundle(),
-      joined = joined()
+      joined = joined(),
+      embajador_keys = brokers_persona_keys()
     )
   })
 

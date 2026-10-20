@@ -1037,42 +1037,32 @@ origenes_resumen_kpis <- function(prep, start = NULL, end = NULL) {
   )
 }
 
-#' Año en curso: 1 de enero → hoy (filtro Periodo = Anual, NxtGen).
+#' Anual del dash: 1 ene 2026 → hoy.
 origenes_ytd_date_range <- function(as_of = Sys.Date()) {
-  as_of <- as.Date(as_of)
-  start <- as.Date(paste0(format(as_of, "%Y"), "-01-01"))
-  end <- as_of
-  if (end < start) {
-    end <- start
-  }
-  list(start = start, end = end)
+  origenes_default_date_range_for_granularity("anual", as_of = as_of)
 }
 
-#' Brokers: el programa arranca en diciembre 2025, el mismo corte que la hoja.
+#' Brokers / dash: corte anual por defecto (ene 2026 → hoy).
 origenes_brokers_history_start <- function() {
-  as.Date("2025-12-01")
+  as.Date("2026-01-01")
 }
 
 #' Rango por defecto según Periodo.
 #' - mensual (y demás): últimos 3 meses + mes actual
 #' - semanal: últimas 4 semanas + semana actual
-#' - anual NxtGen: 1 ene → hoy
-#' - anual Brokers: 1 dic 2025 → hoy
+#' - anual (todo el dash): 1 ene 2026 → hoy
 origenes_default_date_range_for_granularity <- function(granularity = "mensual",
                                                        as_of = Sys.Date(),
                                                        origin_key = NULL) {
   granularity <- origenes_normalize_granularity(granularity)
   as_of <- as.Date(as_of)
   if (identical(granularity, "anual")) {
-    if (identical(origin_key, "broker")) {
-      start <- origenes_brokers_history_start()
-      end <- as_of
-      if (length(end) != 1L || is.na(end) || end < start) {
-        end <- start
-      }
-      return(list(start = start, end = end))
+    start <- origenes_brokers_history_start()
+    end <- as_of
+    if (length(end) != 1L || is.na(end) || end < start) {
+      end <- start
     }
-    return(origenes_ytd_date_range(as_of))
+    return(list(start = start, end = end))
   }
   if (identical(granularity, "semanal")) {
     week_start <- as.Date(lubridate::floor_date(as_of, "week", week_start = 1))

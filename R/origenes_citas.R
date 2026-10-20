@@ -87,7 +87,8 @@ origenes_citas_table <- function(origin_key,
                                  root = Sys.getenv("ORIGENES_APP_ROOT", "."),
                                  rscg = NULL,
                                  name_map = NULL,
-                                 joined = NULL) {
+                                 joined = NULL,
+                                 embajador_keys = NULL) {
   origin_key <- origenes_origin_key(origin_key)
   include_grad <- identical(origin_key, "broker")
   defaults <- origenes_default_date_range()
@@ -169,6 +170,26 @@ origenes_citas_table <- function(origin_key,
       app_name <- stats::setNames(app_name[keep], app_key[keep])
       cita_key <- origenes_brokers_canon_key(meetings$embajador_raw, alias)
       meetings$embajador_registrado <- unname(app_name[cita_key])
+    }
+  }
+
+  if (!is.null(embajador_keys) && length(embajador_keys)) {
+    alias <- origenes_brokers_fold_alias(root)
+    keys <- unique(origenes_brokers_canon_key(embajador_keys, alias))
+    keys <- keys[!is.na(keys) & nzchar(keys)]
+    if (length(keys)) {
+      owner <- origenes_brokers_canon_key(
+        dplyr::coalesce(
+          dplyr::na_if(meetings$embajador_registrado, ""),
+          dplyr::na_if(meetings$embajador, ""),
+          meetings$embajador_raw
+        ),
+        alias
+      )
+      meetings <- meetings[owner %in% keys, , drop = FALSE]
+      if (!nrow(meetings)) {
+        return(origenes_citas_empty(include_grad))
+      }
     }
   }
 
