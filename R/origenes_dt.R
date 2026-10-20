@@ -45,7 +45,8 @@ origenes_dt_sort_callback <- htmlwidgets::JS(
   "}"
 )
 
-#' Datatable ordenable para métricas (Resumen) o detalle (Citas / Ventas).
+#' Datatable ordenable para métricas (Analytics) o detalle (Citas / Ventas).
+#' Métricas: sin scrollX interno (el wrap hace scroll) para no desalinear header/body.
 origenes_datatable <- function(data, style = c("metric", "detail")) {
   style <- match.arg(style)
   if (is.null(data) || !is.data.frame(data)) {
@@ -57,11 +58,13 @@ origenes_datatable <- function(data, style = c("metric", "detail")) {
   is_detail <- identical(style, "detail")
 
   opts <- list(
-    ordering = TRUE,
-    orderClasses = TRUE,
+    # Métricas: orden fijo de filas (como el Sheets). Detalle: ordenable.
+    ordering = is_detail,
+    orderClasses = is_detail,
     autoWidth = FALSE,
     processing = FALSE,
-    scrollX = TRUE,
+    # scrollX en métricas parte header/body y desalinea columnas + rompe sticky.
+    scrollX = is_detail,
     paging = is_detail && n > 100L,
     pageLength = if (is_detail) 100L else max(n, 1L),
     lengthChange = FALSE,
@@ -75,21 +78,25 @@ origenes_datatable <- function(data, style = c("metric", "detail")) {
     language = origenes_dt_language(),
     columnDefs = list(list(
       targets = if (n_cols) seq_len(n_cols) - 1L else list(),
-      orderable = TRUE,
+      orderable = is_detail,
       type = "or-smart"
     )),
-    initComplete = origenes_dt_sort_callback
+    initComplete = if (is_detail) origenes_dt_sort_callback else NULL
   )
 
   DT::datatable(
     data,
     rownames = FALSE,
     escape = TRUE,
-    selection = "none",
+    selection = if (is_detail) {
+      "none"
+    } else {
+      list(mode = "single", target = "cell")
+    },
     width = "100%",
     class = paste(
-      "display nowrap compact or-dt",
-      if (is_detail) "or-dt--detail" else "or-dt--metric"
+      "nowrap compact or-dt",
+      if (is_detail) "display or-dt--detail" else "or-dt--metric"
     ),
     options = opts
   )

@@ -542,7 +542,12 @@ origenes_resumen_series_from_tables <- function(bundle) {
     if (is.null(tbl) || !nrow(tbl)) {
       return(stats::setNames(rep(NA_real_, length(period_cols)), period_cols))
     }
-    row <- tbl[tbl$metrica == metric, period_cols, drop = FALSE]
+    hit <- if (length(metric) == 1L && grepl("[\\^\\$\\|]", metric)) {
+      grepl(metric, tbl$metrica)
+    } else {
+      tbl$metrica == metric
+    }
+    row <- tbl[hit, period_cols, drop = FALSE]
     if (!nrow(row)) {
       return(stats::setNames(rep(NA_real_, length(period_cols)), period_cols))
     }
@@ -580,8 +585,8 @@ origenes_resumen_series_from_tables <- function(bundle) {
 
   tibble::tibble(
     periodo = period_cols,
-    registrados = as.numeric(pick_num_row(emb, "Registrados")),
-    primera_cita = as.numeric(pick_num_row(res, "Primera cita")),
+    registrados = as.numeric(pick_num_row(emb, "^Registrados totales$|^Registrados$")),
+    primera_cita = as.numeric(pick_num_row(res, "Embajadores con Primera cita")),
     cierres = as.numeric(pick_num_row(conv, "Cierres")),
     facturacion = as.numeric(pick_money_row(res, "Facturación")),
     conv_primera = as.numeric(pick_pct_row(emb, "Conversión primera cita / registrados")),
@@ -591,9 +596,37 @@ origenes_resumen_series_from_tables <- function(bundle) {
       if (length(nm)) as.numeric(pick_pct_row(emb, nm[[1]])) else rep(NA_real_, length(period_cols))
     },
     conv_cierre = as.numeric(pick_pct_row(conv, "Conversión cita realizada / venta")),
-    conv_realizadas = as.numeric(pick_pct_row(res, "Conversión citas realizadas")),
-    conv_retencion = as.numeric(pick_pct_row(res, "Conversión retención")),
-    conv_ventas = as.numeric(pick_pct_row(conv, "Conversión ventas"))
+    conv_realizadas = {
+      realizadas <- as.numeric(pick_num_row(res, "Total de citas realizadas"))
+      agendadas <- as.numeric(pick_num_row(res, "Citas Agendadas"))
+      ifelse(agendadas > 0, 100 * realizadas / agendadas, NA_real_)
+    },
+    conv_retencion = vapply(period_cols, function(col) {
+      bounds <- origenes_resumen_period_bounds(col, bundle)
+      meetings <- bundle$prep$meetings %||% tibble::tibble()
+      if (!nrow(meetings) || !"fecha_cita" %in% names(meetings)) {
+        return(NA_real_)
+      }
+      m <- meetings[
+        !is.na(meetings$fecha_cita) &
+          meetings$fecha_cita >= bounds$start &
+          meetings$fecha_cita <= bounds$end,
+        ,
+        drop = FALSE
+      ]
+      if (!nrow(m)) {
+        return(NA_real_)
+      }
+      100 * sum(!dplyr::coalesce(m$primera_cita, FALSE)) / nrow(m)
+    }, numeric(1)),
+    conv_ventas = {
+      v <- as.numeric(pick_pct_row(conv, "Conversión ventas"))
+      if (all(is.na(v))) {
+        as.numeric(pick_pct_row(conv, "Conversión cita realizada / venta"))
+      } else {
+        v
+      }
+    }
   )
 }
 
@@ -621,6 +654,7 @@ origenes_resumen_insight <- function(series) {
 origenes_resumen_series_choices <- function() {
   c(
     "Registrados" = "registrados",
+    "Registrados totales" = "registrados",
     "Primera cita" = "primera_cita",
     "Cierres" = "cierres",
     "Facturación" = "facturacion"

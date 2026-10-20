@@ -481,76 +481,131 @@ h4 {
   width: 100%;
 }
 
-.or-metric-table-wrap table,
-.or-metric-table-wrap .dataTables_wrapper,
-.or-metric-table-wrap .dataTable {
-  width: 100% !important;
+.or-metric-table-wrap .dataTables_wrapper {
+  width: max-content;
+  min-width: 100%;
 }
 
-.or-metric-table-wrap table {
+.or-metric-table-wrap table.or-dt--metric {
+  width: max-content !important;
   min-width: 100%;
-  table-layout: auto;
-  border-collapse: collapse;
+  table-layout: fixed;
+  border-collapse: separate;
+  border-spacing: 0;
   font-size: 1.02rem;
 }
 
-.or-metric-table-wrap th,
-.or-metric-table-wrap td {
-  padding: 0.9rem 1.1rem;
+.or-metric-table-wrap table.or-dt--metric th,
+.or-metric-table-wrap table.or-dt--metric td {
+  padding: 0.8rem 0.95rem;
   border-bottom: 1px solid var(--or-line);
+  border-right: 1px solid rgba(28, 36, 41, 0.1);
   white-space: nowrap;
+  box-sizing: border-box;
 }
 
-.or-metric-table-wrap th {
-  font-size: 0.82rem;
+.or-metric-table-wrap table.or-dt--metric th:last-child,
+.or-metric-table-wrap table.or-dt--metric td:last-child {
+  border-right: 0;
+}
+
+.or-metric-table-wrap table.or-dt--metric th {
+  font-size: 0.76rem;
   text-transform: uppercase;
-  letter-spacing: 0.04em;
+  letter-spacing: 0.03em;
   color: var(--or-muted);
-  font-weight: 600;
-  background: rgba(244, 241, 235, 0.65);
-  cursor: pointer;
+  font-weight: 650;
+  background: #f3f0ea;
+  cursor: default;
   user-select: none;
+  vertical-align: bottom;
 }
 
-.or-metric-table-wrap th.sorting,
-.or-metric-table-wrap th.sorting_asc,
-.or-metric-table-wrap th.sorting_desc {
-  background: rgba(244, 241, 235, 0.85);
+.or-metric-table-wrap table.or-dt--metric th.sorting,
+.or-metric-table-wrap table.or-dt--metric th.sorting_asc,
+.or-metric-table-wrap table.or-dt--metric th.sorting_desc {
+  background-image: none !important;
+  cursor: default;
 }
 
-.or-metric-table-wrap th.sorting_asc,
-.or-metric-table-wrap th.sorting_desc {
+/* Columna métrica fija: ancha + wrap para que no se corte el texto */
+.or-metric-table-wrap table.or-dt--metric td:first-child,
+.or-metric-table-wrap table.or-dt--metric th:first-child {
+  position: sticky;
+  left: 0;
+  width: 22rem;
+  min-width: 22rem;
+  max-width: 22rem;
+  z-index: 3;
+  text-align: left;
+  font-weight: 650;
+  background: #fff !important;
+  border-right: 1px solid rgba(28, 36, 41, 0.16);
+  box-shadow: 4px 0 8px rgba(28, 36, 41, 0.06);
+  white-space: normal;
+  line-height: 1.25;
+  overflow-wrap: anywhere;
+}
+
+.or-metric-table-wrap table.or-dt--metric th:first-child {
+  background: #f3f0ea !important;
+  z-index: 4;
+}
+
+.or-metric-table-wrap table.or-dt--metric td:nth-child(2),
+.or-metric-table-wrap table.or-dt--metric th:nth-child(2) {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+  width: 5.75rem;
+  min-width: 5.75rem;
+  font-weight: 650;
+  background: rgba(31, 106, 74, 0.06);
+  border-right: 1px solid rgba(31, 106, 74, 0.2);
+}
+
+.or-metric-table-wrap table.or-dt--metric th:nth-child(2) {
+  background: rgba(31, 106, 74, 0.1);
   color: var(--or-green);
 }
 
-.or-metric-table-wrap td:first-child,
-.or-metric-table-wrap th:first-child {
-  position: sticky;
-  left: 0;
-  min-width: 14rem;
-  background: var(--or-surface);
-  font-weight: 650;
-  z-index: 1;
-}
-
-.or-metric-table-wrap th:first-child {
-  background: rgba(244, 241, 235, 0.95);
-  z-index: 2;
-}
-
-.or-metric-table-wrap td:not(:first-child),
-.or-metric-table-wrap th:not(:first-child) {
+.or-metric-table-wrap table.or-dt--metric td:not(:first-child):not(:nth-child(2)),
+.or-metric-table-wrap table.or-dt--metric th:not(:first-child):not(:nth-child(2)) {
   text-align: right;
   font-variant-numeric: tabular-nums;
-  min-width: 6.5rem;
+  width: 7.5rem;
+  min-width: 7.5rem;
 }
 
-.or-metric-table-wrap tr:hover td {
-  background: rgba(31, 106, 74, 0.04);
+.or-metric-table-wrap table.or-dt--metric td:nth-child(2n + 3),
+.or-metric-table-wrap table.or-dt--metric th:nth-child(2n + 3) {
+  background: rgba(244, 241, 235, 0.45);
 }
 
-.or-metric-table-wrap tr:hover td:first-child {
-  background: rgba(31, 106, 74, 0.06);
+.or-metric-table-wrap table.or-dt--metric th:nth-child(2n + 3) {
+  background: #efebe3;
+}
+
+.or-metric-table-wrap table.or-dt--metric tbody tr:hover td:not(:first-child) {
+  background: rgba(31, 106, 74, 0.07);
+}
+
+.or-metric-table-wrap table.or-dt--metric tbody tr:hover td:first-child {
+  background: #f4faf6 !important;
+}
+
+.or-metric-table-wrap table.or-dt--metric tbody tr:hover td:nth-child(2) {
+  background: rgba(31, 106, 74, 0.12);
+}
+
+.or-metric-table-wrap table.or-dt--metric tbody tr.selected td:not(:first-child),
+.or-metric-table-wrap table.or-dt--metric td.selected {
+  outline: 2px solid rgba(31, 106, 74, 0.45);
+  outline-offset: -2px;
+  cursor: pointer;
+}
+
+.or-metric-table-wrap table.or-dt--metric tbody td {
+  cursor: pointer;
 }
 
 .or-metric-table-wrap .dataTables_wrapper .dataTables_filter {
@@ -1791,6 +1846,125 @@ footer.footer {
 
   .or-table__seller {
     display: none;
+  }
+}
+
+.or-brokers-roster {
+  display: grid;
+  gap: 1rem;
+  margin-top: 0.75rem;
+}
+
+.or-brokers-roster__intro h2 {
+  margin: 0 0 0.35rem;
+  font-size: 1.35rem;
+}
+
+.or-brokers-roster__intro p {
+  margin: 0;
+  max-width: 52rem;
+  color: var(--or-muted, #5c6570);
+  font-size: 0.95rem;
+}
+
+.or-brokers-roster__editor {
+  padding: 1rem 1.1rem;
+}
+
+.or-brokers-roster__fields {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.75rem 1rem;
+  align-items: end;
+}
+
+.or-brokers-roster__fields .shiny-input-container {
+  margin-bottom: 0;
+}
+
+.or-brokers-roster__fields .checkbox {
+  padding-top: 1.4rem;
+}
+
+.or-brokers-roster__fields .btn {
+  justify-self: start;
+}
+
+.or-brokers-roster__actions {
+  grid-column: 1 / -1;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.6rem;
+  align-items: center;
+}
+
+.or-brokers-roster__table {
+  overflow-x: auto;
+}
+
+.or-brokers-roster__table .or-roster-select,
+.or-brokers-roster__table .or-roster-input {
+  width: 100%;
+  max-width: 14rem;
+  min-height: 1.85rem;
+  padding: 0.15rem 0.35rem;
+  border: 1px solid var(--or-line);
+  border-radius: 0.35rem;
+  background: #fff;
+  font-size: 0.78rem;
+  line-height: 1.2;
+}
+
+.or-brokers-roster__table .or-roster-input {
+  max-width: 8.5rem;
+}
+
+.or-brokers-roster__more {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.65rem 1rem;
+  margin-top: 0.85rem;
+  padding-bottom: 0.5rem;
+}
+
+.or-brokers-roster__more-meta {
+  font-size: 0.82rem;
+  color: var(--or-muted, #6b7280);
+}
+
+.or-brokers-roster__more-btn {
+  border: 1px solid var(--or-line);
+  background: #fff;
+}
+
+.or-brokers-roster__more-all {
+  padding-left: 0;
+}
+
+.or-roster-delete {
+  width: 1.65rem;
+  height: 1.65rem;
+  padding: 0;
+  border: 0;
+  border-radius: 999px;
+  background: transparent;
+  color: #9a3b3b;
+  font-size: 1.25rem;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.or-roster-delete:hover,
+.or-roster-delete:focus {
+  background: #f8e8e8;
+  color: #8d1f1f;
+  outline: none;
+}
+
+@media (max-width: 800px) {
+  .or-brokers-roster__fields {
+    grid-template-columns: minmax(0, 1fr);
   }
 }
 

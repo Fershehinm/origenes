@@ -152,8 +152,12 @@ origenes_calendar_range_ui <- function(start_id,
                                        start_value = NULL,
                                        end_value = NULL,
                                        min_date = NULL,
-                                       max_date = NULL) {
-  defaults <- origenes_default_date_range()
+                                       max_date = NULL,
+                                       origin_key = NULL) {
+  defaults <- origenes_default_date_range_for_granularity(
+    "anual",
+    origin_key = origin_key
+  )
   if (is.null(start_value)) {
     start_value <- defaults$start
   }
@@ -199,6 +203,7 @@ origenes_calendar_range_ui <- function(start_id,
 }
 
 origenes_periodo_filter_ui <- function(prefix) {
+  origin_key <- if (identical(prefix, "brokers")) "broker" else NULL
   origenes_filter_bar(
     origenes_filter_col(
       min_width = "180px",
@@ -206,7 +211,7 @@ origenes_periodo_filter_ui <- function(prefix) {
         paste0(prefix, "_granularity"),
         "Periodo",
         choices = origenes_granularity_choices(),
-        selected = "mensual",
+        selected = "anual",
         width = "100%"
       )
     ),
@@ -215,7 +220,8 @@ origenes_periodo_filter_ui <- function(prefix) {
       style = "min-width:420px;",
       origenes_calendar_range_ui(
         paste0(prefix, "_date_start"),
-        paste0(prefix, "_date_end")
+        paste0(prefix, "_date_end"),
+        origin_key = origin_key
       )
     )
   )
@@ -375,7 +381,7 @@ origenes_nxtgen_ui <- function() {
     subtab_id = "nxtgen_subtab",
     panels = list(
       bslib::nav_panel(
-        "Resumen",
+        "Analytics",
         value = "resumen",
         shiny::uiOutput("nxtgen_resumen_header"),
         origenes_resumen_insights_ui("nxtgen")
@@ -416,6 +422,53 @@ origenes_nxtgen_ui <- function() {
   )
 }
 
+origenes_brokers_embajadores_ui <- function() {
+  shiny::div(
+    class = "or-brokers-roster",
+    shiny::div(
+      class = "or-brokers-roster__intro",
+      shiny::h2("Embajadores")
+    ),
+    htmltools::tags$datalist(
+      id = "brokers_gen_choices",
+      lapply(paste("Gen", seq_len(5L)), function(g) htmltools::tags$option(value = g))
+    ),
+    shiny::div(
+      class = "or-metric-table-wrap or-brokers-roster__table",
+      reactable::reactableOutput("brokers_roster_table", width = "100%")
+    ),
+    shiny::uiOutput("brokers_roster_load_more_ui")
+  )
+}
+
+origenes_brokers_persona_filter_ui <- function() {
+  origenes_filter_bar(
+    origenes_filter_col(
+      min_width = "220px",
+      shiny::selectizeInput(
+        "brokers_filter_canal",
+        "Canal",
+        choices = c("Todos" = ""),
+        selected = "",
+        width = "100%",
+        options = list(placeholder = "Todos")
+      )
+    ),
+    origenes_filter_col(
+      min_width = "280px",
+      grow = TRUE,
+      shiny::selectizeInput(
+        "brokers_filter_embajador",
+        "Embajador",
+        choices = c("Todos" = ""),
+        selected = "",
+        width = "100%",
+        options = list(placeholder = "Todos")
+      )
+    )
+  )
+}
+
 origenes_brokers_ui <- function() {
   origenes_origin_shell(
     kicker = "ORIGEN 02",
@@ -424,15 +477,17 @@ origenes_brokers_ui <- function() {
     subtab_id = "brokers_subtab",
     panels = list(
       bslib::nav_panel(
-        "Resumen",
+        "Analytics",
         value = "resumen",
-        shiny::uiOutput("brokers_resumen_header"),
-        origenes_resumen_insights_ui("brokers")
+        origenes_brokers_persona_filter_ui(),
+        origenes_metric_table_ui("Embajadores", output_id = "brokers_tbl_embajadores"),
+        origenes_metric_table_ui("Actividad", output_id = "brokers_tbl_resultados"),
+        origenes_metric_table_ui("Citas por generación", output_id = "brokers_tbl_conversion")
       ),
       bslib::nav_panel(
         "Embajadores",
         value = "embajadores",
-        origenes_metric_table_ui("Embajadores", output_id = "brokers_tbl_embajadores")
+        origenes_brokers_embajadores_ui()
       ),
       bslib::nav_panel(
         "Citas",
@@ -440,11 +495,7 @@ origenes_brokers_ui <- function() {
         origenes_detail_panel_shell(
           "CITAS", "Citas",
           header_id = "brokers_citas_header", table_id = "brokers_tbl_citas",
-          insights_ui = origenes_citas_insights_ui("brokers", include_postgrad = TRUE),
-          metric_ui = origenes_metric_table_ui(
-            "Citas y actividad",
-            output_id = "brokers_tbl_resultados"
-          )
+          insights_ui = origenes_citas_insights_ui("brokers", include_postgrad = TRUE)
         )
       ),
       bslib::nav_panel(
@@ -454,10 +505,6 @@ origenes_brokers_ui <- function() {
           "VENTAS", "Ventas",
           header_id = "brokers_ventas_header", table_id = "brokers_tbl_ventas",
           insights_ui = origenes_ventas_insights_ui("brokers"),
-          metric_ui = origenes_metric_table_ui(
-            "Ventas y conversión",
-            output_id = "brokers_tbl_conversion"
-          ),
           table_kind = "ventas_cierre"
         )
       )
@@ -474,7 +521,7 @@ origenes_ui <- function() {
     window_title = "Origin Analytics | División 2c",
     header = shiny::tags$head(
       shiny::tags$meta(name = "viewport", content = "width=device-width, initial-scale=1"),
-      shiny::tags$link(rel = "stylesheet", type = "text/css", href = "styles.css?v=33"),
+      shiny::tags$link(rel = "stylesheet", type = "text/css", href = "styles.css?v=40"),
       shiny::tags$script(htmltools::HTML(paste(
         "Shiny.addCustomMessageHandler('origenes-htmlwidgets-static-render', function(message) {",
         "  setTimeout(function() {",

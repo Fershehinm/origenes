@@ -158,6 +158,20 @@ origenes_citas_table <- function(origin_key,
       primera_label = origenes_fmt_primera_cita(.data$primera_cita)
     )
 
+  # Brokers: el embajador de la cita es quien sigue en la app. Si lo sacan, queda vacío.
+  if (include_grad && !is.null(joined) && !is.null(joined$origins$broker)) {
+    roster <- origenes_brokers_roster_build(joined$origins$broker, root = root)
+    if (nrow(roster)) {
+      alias <- origenes_brokers_fold_alias(root)
+      app_key <- origenes_brokers_canon_key(roster$nombre_key, alias)
+      app_name <- as.character(roster$nombre_app)
+      keep <- !duplicated(app_key)
+      app_name <- stats::setNames(app_name[keep], app_key[keep])
+      cita_key <- origenes_brokers_canon_key(meetings$embajador_raw, alias)
+      meetings$embajador_registrado <- unname(app_name[cita_key])
+    }
+  }
+
   if (include_grad) {
     grad <- origenes_brokers_graduacion_map(root)
     meetings <- meetings |>

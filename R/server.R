@@ -39,7 +39,7 @@ origenes_resumen_header_ui <- function(bundle, prefix) {
       "01",
       "Embajadores",
       origenes_resumen_kpi(
-        "Registrados",
+        "Registrados totales",
         nxtgen_fmt_num(k$registrados),
         paste0(nxtgen_fmt_pct(k$conv_primera_reg), " con 1ª cita"),
         accent = TRUE,
@@ -508,7 +508,7 @@ origenes_bind_origin_server <- function(prefix,
   # --- Resumen KPI card drills ---------------------------------------------
   shiny::observeEvent(input[[paste0(prefix, "_kpi_resumen_registrados")]], {
     open_resumen_metric_drill(
-      c("^Registrados$", "Cita agendada", "Primera cita", "Conversión primera"),
+      c("^Registrados totales", "Registrados sin equipos", "Cita agendada", "Primera cita", "Conversión primera"),
       "Embajadores registrados"
     )
   }, ignoreInit = TRUE)
@@ -617,6 +617,60 @@ origenes_bind_origin_server <- function(prefix,
     origenes_datatable(bundle$tabla_conversion, style = "metric")
   }, server = FALSE)
 
+  origenes_bind_metric_cell_drill <- function(table_id, kind = c("embajadores", "actividad", "conversion")) {
+    kind <- match.arg(kind)
+    shiny::observeEvent(input[[paste0(table_id, "_cells_selected")]], {
+      sel <- input[[paste0(table_id, "_cells_selected")]]
+      shiny::req(!is.null(sel), length(sel) >= 2L || (is.matrix(sel) && nrow(sel) >= 1L))
+      bundle <- resumen_reactive()
+      shiny::req(bundle)
+
+      if (is.matrix(sel)) {
+        row_i <- as.integer(sel[1L, 1L])
+        # DT: filas 1-based, columnas 0-based en cells_selected (client-side).
+        col_i <- as.integer(sel[1L, 2L]) + 1L
+      } else {
+        row_i <- as.integer(sel[[1]])
+        col_i <- as.integer(sel[[2]]) + 1L
+      }
+      shiny::req(is.finite(row_i), is.finite(col_i), row_i >= 1L, col_i >= 1L)
+
+      tbl <- switch(
+        kind,
+        embajadores = bundle$tabla_embajadores,
+        actividad = bundle$tabla_resultados,
+        conversion = bundle$tabla_conversion
+      )
+      shiny::req(!is.null(tbl), nrow(tbl) >= row_i, ncol(tbl) >= col_i)
+
+      metric <- as.character(tbl$metrica[[row_i]])
+      period_col <- names(tbl)[[col_i]]
+      # Clic en la columna métrica: interpretar como Total
+      if (identical(period_col, "metrica")) {
+        period_col <- "Total"
+      }
+
+      detail <- if (identical(kind, "embajadores")) {
+        origenes_resumen_embajadores_cell_rows(bundle, metric, period_col)
+      } else if (identical(kind, "conversion") && identical(bundle$origin_key, "broker")) {
+        origenes_resumen_citas_gen_cell_rows(bundle, metric, period_col)
+      } else {
+        origenes_resumen_actividad_cell_rows(bundle, metric, period_col)
+      }
+
+      origenes_resumen_cell_drill_show_modal(
+        title = paste(channel_title, "·", metric),
+        subtitle = paste0("Columna: ", period_col),
+        tbl = detail,
+        session = session
+      )
+    }, ignoreInit = TRUE, ignoreNULL = TRUE)
+  }
+
+  origenes_bind_metric_cell_drill(paste0(prefix, "_tbl_embajadores"), "embajadores")
+  origenes_bind_metric_cell_drill(paste0(prefix, "_tbl_resultados"), "actividad")
+  origenes_bind_metric_cell_drill(paste0(prefix, "_tbl_conversion"), "conversion")
+
   invisible(NULL)
 }
 
@@ -645,9 +699,14 @@ origenes_server <- function(input, output, session) {
     )
   })
 
-  origenes_bind_date_range <- function(prefix) {
+  origenes_bind_date_range <- function(prefix, origin_key) {
     shiny::reactive({
-      defaults <- origenes_default_date_range()
+      data_as_of <- origenes_origin_activity_as_of(joined(), origin_key)
+      defaults <- origenes_default_date_range_for_granularity(
+        input[[paste0(prefix, "_granularity")]] %||% "anual",
+        as_of = data_as_of,
+        origin_key = origin_key
+      )
       start <- input[[paste0(prefix, "_date_start")]]
       end <- input[[paste0(prefix, "_date_end")]]
       if (is.null(start)) start <- defaults$start
@@ -656,6 +715,10 @@ origenes_server <- function(input, output, session) {
       end <- as.Date(end)
       if (is.na(start)) start <- defaults$start
       if (is.na(end)) end <- defaults$end
+      # No pedir fechas posteriores a la última actividad del origen.
+      if (!is.na(data_as_of) && end > data_as_of) {
+        end <- data_as_of
+      }
       if (start > end) {
         tmp <- start
         start <- end
@@ -665,49 +728,489 @@ origenes_server <- function(input, output, session) {
     })
   }
 
-  nxtgen_date_range <- origenes_bind_date_range("nxtgen")
-  brokers_date_range <- origenes_bind_date_range("brokers")
+  nxtgen_date_range <- origenes_bind_date_range("nxtgen", "nxtgen")
+  brokers_date_range <- origenes_bind_date_range("brokers", "broker")
 
-  origenes_sync_dates_to_granularity <- function(prefix) {
+  # Al cambiar Periodo, aplica el default de fechas de esa vista.
+  # Si el usuario luego mueve inicio/fin, se respetan hasta el próximo cambio de Periodo.
+  origenes_sync_dates_to_granularity <- function(prefix, origin_key) {
     shiny::observeEvent(input[[paste0(prefix, "_granularity")]], {
-      gran <- input[[paste0(prefix, "_granularity")]]
-      if (!identical(gran, "anual")) {
-        return()
-      }
-      ytd <- origenes_ytd_date_range()
-      shiny::updateDateInput(session, paste0(prefix, "_date_start"), value = ytd$start)
-      shiny::updateDateInput(session, paste0(prefix, "_date_end"), value = ytd$end)
+      gran <- input[[paste0(prefix, "_granularity")]] %||% "anual"
+      data_as_of <- origenes_origin_activity_as_of(joined(), origin_key)
+      dr <- origenes_default_date_range_for_granularity(
+        gran,
+        as_of = data_as_of,
+        origin_key = origin_key
+      )
+      shiny::updateDateInput(session, paste0(prefix, "_date_start"), value = dr$start)
+      shiny::updateDateInput(session, paste0(prefix, "_date_end"), value = dr$end)
     }, ignoreInit = TRUE)
   }
-  origenes_sync_dates_to_granularity("nxtgen")
-  origenes_sync_dates_to_granularity("brokers")
+  origenes_sync_dates_to_granularity("nxtgen", "nxtgen")
+  origenes_sync_dates_to_granularity("brokers", "broker")
+
+  # Al cargar: alinea el fin del calendario a la última actividad del origen.
+  shiny::observeEvent(joined(), {
+    j <- joined()
+    shiny::req(!is.null(j))
+    for (pair in list(
+      list(prefix = "nxtgen", origin = "nxtgen"),
+      list(prefix = "brokers", origin = "broker")
+    )) {
+      data_as_of <- origenes_origin_activity_as_of(j, pair$origin)
+      gran <- input[[paste0(pair$prefix, "_granularity")]] %||% "anual"
+      dr <- origenes_default_date_range_for_granularity(
+        gran,
+        as_of = data_as_of,
+        origin_key = pair$origin
+      )
+      shiny::updateDateInput(session, paste0(pair$prefix, "_date_start"), value = dr$start)
+      shiny::updateDateInput(session, paste0(pair$prefix, "_date_end"), value = dr$end)
+    }
+  }, once = TRUE)
 
   nxtgen_granularity <- shiny::reactive({
-    input$nxtgen_granularity %||% "mensual"
+    input$nxtgen_granularity %||% "anual"
   })
   brokers_granularity <- shiny::reactive({
-    input$brokers_granularity %||% "mensual"
+    input$brokers_granularity %||% "anual"
+  })
+
+  # --- Brokers roster (Nombre app / Conciliación CRM / Canal) ----------------
+  app_root <- Sys.getenv("ORIGENES_APP_ROOT", ".")
+
+  brokers_overrides_rv <- shiny::reactiveVal({
+    ov <- origenes_brokers_load_overrides(app_root)
+    if (!nrow(ov)) {
+      ov <- origenes_brokers_seed_overrides_from_sheets(app_root)
+      if (nrow(ov)) {
+        origenes_brokers_save_overrides(ov, app_root)
+      }
+    }
+    ov
+  })
+
+  brokers_origin_obj <- shiny::reactive({
+    j <- joined()
+    shiny::req(j)
+    j$origins$broker
+  })
+
+  brokers_roster <- shiny::reactive({
+    origin_obj <- brokers_origin_obj()
+    shiny::req(origin_obj)
+    origenes_brokers_roster_build(
+      origin_obj,
+      overrides = brokers_overrides_rv(),
+      root = app_root
+    )
+  })
+
+  brokers_roster_page_size <- 50L
+  brokers_roster_visible_n <- shiny::reactiveVal(brokers_roster_page_size)
+  shiny::observeEvent(
+    brokers_roster(),
+    {
+      brokers_roster_visible_n(brokers_roster_page_size)
+    },
+    ignoreNULL = TRUE
+  )
+  shiny::observeEvent(input$brokers_roster_load_more, {
+    brokers_roster_visible_n(brokers_roster_visible_n() + brokers_roster_page_size)
+  })
+  shiny::observeEvent(input$brokers_roster_load_all, {
+    brokers_roster_visible_n(.Machine$integer.max)
+  })
+
+  brokers_upsert_override <- function(key, patch) {
+    roster <- brokers_roster()
+    shiny::req(nzchar(key %||% ""), nrow(roster) > 0)
+    row <- roster[roster$nombre_key == key, , drop = FALSE]
+    shiny::req(nrow(row) > 0)
+    fecha_grad_cur <- if ("fecha_graduacion" %in% names(row)) {
+      as.character(row$fecha_graduacion[[1]] %||% "")
+    } else {
+      ""
+    }
+    if (inherits(row$fecha_graduacion[[1]], "Date") && !is.na(row$fecha_graduacion[[1]])) {
+      fecha_grad_cur <- format(row$fecha_graduacion[[1]], "%Y-%m-%d")
+    }
+    new_row <- tibble::tibble(
+      nombre_key = key,
+      amb_contact_id = row$amb_contact_id[[1]] %||% NA_character_,
+      nombre_app = row$nombre_app[[1]],
+      conciliacion = stringr::str_squish(
+        patch$conciliacion %||% row$conciliacion[[1]] %||% ""
+      ),
+      canal = stringr::str_squish(patch$canal %||% row$canal[[1]] %||% ""),
+      pertenece_equipo = if (!is.null(patch$pertenece_equipo)) {
+        isTRUE(patch$pertenece_equipo)
+      } else {
+        isTRUE(row$pertenece_equipo[[1]])
+      },
+      pertenece_manual = TRUE,
+      generacion = stringr::str_squish(
+        patch$generacion %||% row$generacion[[1]] %||% ""
+      ),
+      fecha_graduacion = stringr::str_squish(
+        patch$fecha_graduacion %||% fecha_grad_cur
+      ),
+      gen_registro = row$gen_registro[[1]] %||% "",
+      excluido = isTRUE(patch$excluido %||% FALSE),
+      updated_at = format(Sys.time(), "%Y-%m-%dT%H:%M:%S%z")
+    )
+    ov <- brokers_overrides_rv()
+    ov <- ov[ov$nombre_key != key, , drop = FALSE]
+    ov <- dplyr::bind_rows(ov, new_row)
+    saved <- tryCatch({
+      origenes_brokers_save_overrides(ov, app_root)
+      TRUE
+    }, error = function(e) FALSE)
+    brokers_overrides_rv(ov)
+    saved
+  }
+
+  shiny::observeEvent(input$brokers_roster_cell_edit, {
+    edit <- input$brokers_roster_cell_edit
+    shiny::req(!is.null(edit), nzchar(edit$key %||% ""))
+    field <- as.character(edit$field %||% "")
+    value <- stringr::str_squish(as.character(edit$value %||% ""))
+    patch <- list()
+    if (identical(field, "conciliacion")) {
+      patch$conciliacion <- value
+    } else if (identical(field, "canal")) {
+      patch$canal <- value
+    } else if (identical(field, "generacion")) {
+      patch$generacion <- value
+    } else if (identical(field, "fecha_graduacion")) {
+      d <- origenes_brokers_parse_sheet_fecha(value)
+      if (nzchar(value) && is.na(d)) {
+        d <- suppressWarnings(as.Date(value))
+      }
+      if (nzchar(value) && is.na(d)) {
+        shiny::showNotification(
+          "Usa fecha dd/mm/yyyy (ej. 04/05/2026)",
+          type = "warning",
+          duration = 3
+        )
+        return(invisible(NULL))
+      }
+      patch$fecha_graduacion <- if (is.na(d)) "" else format(d, "%Y-%m-%d")
+    } else {
+      return(invisible(NULL))
+    }
+    saved <- brokers_upsert_override(edit$key, patch)
+    shiny::showNotification(
+      if (isTRUE(saved)) "Guardado" else "Guardado en sesión (no se pudo escribir el archivo)",
+      type = if (isTRUE(saved)) "message" else "warning",
+      duration = 2
+    )
+  }, ignoreInit = TRUE)
+
+  brokers_delete_key <- shiny::reactiveVal(NULL)
+
+  shiny::observeEvent(input$brokers_roster_delete_key, {
+    key <- input$brokers_roster_delete_key
+    roster <- brokers_roster()
+    shiny::req(nzchar(key %||% ""), nrow(roster) > 0)
+    row <- roster[roster$nombre_key == key, , drop = FALSE]
+    shiny::req(nrow(row) > 0)
+    brokers_delete_key(key)
+    nombre <- row$nombre_app[[1]]
+    shiny::showModal(shiny::modalDialog(
+      title = "Eliminar fila",
+      shiny::p(
+        "¿Quitar a ", shiny::strong(nombre),
+        " de la conciliación? Deja de aparecer en esta lista y en los conteos de embajadores."
+      ),
+      footer = shiny::tagList(
+        shiny::modalButton("Cancelar"),
+        shiny::actionButton(
+          "brokers_roster_delete_confirm",
+          "Eliminar",
+          class = "btn-danger"
+        )
+      ),
+      easyClose = TRUE
+    ))
+  })
+
+  shiny::observeEvent(input$brokers_roster_delete_confirm, {
+    shiny::removeModal()
+    key <- brokers_delete_key()
+    roster <- brokers_roster()
+    shiny::req(nzchar(key %||% ""), nrow(roster) > 0)
+    row <- roster[roster$nombre_key == key, , drop = FALSE]
+    shiny::req(nrow(row) > 0)
+
+    saved <- brokers_upsert_override(key, list(excluido = TRUE))
+    shiny::showNotification(
+      if (isTRUE(saved)) {
+        paste0(row$nombre_app[[1]], " eliminado de la conciliación")
+      } else {
+        "Quitado en sesión (no se pudo escribir el archivo)"
+      },
+      type = if (isTRUE(saved)) "message" else "warning",
+      duration = 3
+    )
+  })
+
+  brokers_roster_show <- shiny::reactive({
+    roster <- brokers_roster()
+    origin <- brokers_origin_obj()
+    shiny::req(nrow(roster) > 0, !is.null(origin))
+    as_of <- origenes_origin_activity_as_of(joined(), "broker")
+    origenes_brokers_embajadores_tabla(
+      origin,
+      roster,
+      as_of = as_of,
+      root = app_root
+    )
+  })
+
+  output$brokers_roster_load_more_ui <- shiny::renderUI({
+    show <- brokers_roster_show()
+    shiny::req(nrow(show) > 0)
+    visible <- min(brokers_roster_visible_n(), nrow(show))
+    remaining <- nrow(show) - visible
+    if (remaining <= 0) {
+      return(shiny::div(
+        class = "or-brokers-roster__more",
+        shiny::span(
+          class = "or-brokers-roster__more-meta",
+          paste0("Mostrando ", nrow(show), " de ", nrow(show))
+        )
+      ))
+    }
+    next_chunk <- min(brokers_roster_page_size, remaining)
+    shiny::div(
+      class = "or-brokers-roster__more",
+      shiny::span(
+        class = "or-brokers-roster__more-meta",
+        paste0("Mostrando ", visible, " de ", nrow(show))
+      ),
+      shiny::actionButton(
+        "brokers_roster_load_more",
+        paste0("Cargar más (+", next_chunk, ")"),
+        class = "btn-sm or-brokers-roster__more-btn"
+      ),
+      shiny::actionButton(
+        "brokers_roster_load_all",
+        paste0("Mostrar todos (", remaining, " restantes)"),
+        class = "btn-sm btn-link or-brokers-roster__more-all"
+      )
+    )
+  })
+
+  output$brokers_roster_table <- reactable::renderReactable({
+    show_all <- brokers_roster_show()
+    shiny::req(nrow(show_all) > 0)
+    origin <- brokers_origin_obj()
+    crm <- origenes_brokers_conciliacion_choices(origin)
+    canales <- origenes_brokers_canal_choices()
+    visible_n <- min(brokers_roster_visible_n(), nrow(show_all))
+    show <- utils::head(show_all, visible_n) |>
+      dplyr::mutate(quitar = .data$nombre_key, .before = 1L)
+    reactable::reactable(
+      show,
+      filterable = TRUE,
+      searchable = TRUE,
+      pagination = FALSE,
+      defaultSorted = list(.fecha_reg = "desc", Nombre = "asc"),
+      highlight = TRUE,
+      compact = TRUE,
+      wrap = FALSE,
+      columns = list(
+        quitar = reactable::colDef(
+          name = "",
+          sortable = FALSE,
+          filterable = FALSE,
+          width = 44,
+          align = "center",
+          cell = function(value) {
+            shiny::tags$button(
+              type = "button",
+              class = "or-roster-delete",
+              title = "Eliminar",
+              `aria-label` = "Eliminar",
+              `data-key` = value,
+              onclick = paste(
+                "Shiny.setInputValue('brokers_roster_delete_key',",
+                "this.getAttribute('data-key'), {priority: 'event'})"
+              ),
+              "\u00d7"
+            )
+          }
+        ),
+        nombre_key = reactable::colDef(show = FALSE),
+        .fecha_reg = reactable::colDef(show = FALSE),
+        `Fecha de registro` = reactable::colDef(
+          name = "Fecha de registro",
+          minWidth = 110,
+          sortable = FALSE
+        ),
+        Nombre = reactable::colDef(name = "Nombre", minWidth = 160),
+        `Pertenece a un equipo` = reactable::colDef(name = "Pertenece a un equipo", minWidth = 90),
+        Role = reactable::colDef(name = "Role", minWidth = 100),
+        `Conciliacion Nombre` = reactable::colDef(
+          name = "Conciliacion Nombre",
+          minWidth = 200,
+          html = TRUE,
+          cell = function(value, index) {
+            key <- show$nombre_key[[index]]
+            choices <- sort(unique(c(crm, value)))
+            choices <- choices[!is.na(choices) & nzchar(choices)]
+            origenes_brokers_select_cell(key, "conciliacion", value, choices)
+          }
+        ),
+        Canal = reactable::colDef(
+          name = "Canal",
+          minWidth = 160,
+          html = TRUE,
+          cell = function(value, index) {
+            key <- show$nombre_key[[index]]
+            origenes_brokers_select_cell(key, "canal", value, canales)
+          }
+        ),
+        `Fecha graduación` = reactable::colDef(
+          name = "Fecha graduación",
+          minWidth = 120,
+          html = TRUE,
+          cell = function(value, index) {
+            key <- show$nombre_key[[index]]
+            origenes_brokers_text_cell(
+              key,
+              "fecha_graduacion",
+              value %||% "",
+              placeholder = "dd/mm/yyyy"
+            )
+          }
+        ),
+        Generación = reactable::colDef(
+          name = "Generación",
+          minWidth = 110,
+          html = TRUE,
+          cell = function(value, index) {
+            key <- show$nombre_key[[index]]
+            origenes_brokers_text_cell(
+              key,
+              "generacion",
+              value %||% "",
+              placeholder = "Gen 1",
+              list_id = "brokers_gen_choices"
+            )
+          }
+        ),
+        `Fecha primera cita realizada` = reactable::colDef(
+          name = "Fecha primera cita realizada", minWidth = 120
+        ),
+        `Fecha de última cita realizada` = reactable::colDef(
+          name = "Fecha de última cita realizada", minWidth = 120
+        ),
+        `Gen Registro` = reactable::colDef(name = "Gen Registro", minWidth = 100),
+        `Días desde la última cita realizadas` = reactable::colDef(
+          name = "Días desde la última cita realizadas", minWidth = 100
+        ),
+        `Fecha de última cita agendada/realizada` = reactable::colDef(
+          name = "Fecha de última cita agendada/realizada", minWidth = 130
+        ),
+        `Gen primera cita realizada` = reactable::colDef(
+          name = "Gen primera cita realizada", minWidth = 110
+        ),
+        `Ciclo Registro / Primera Cita` = reactable::colDef(
+          name = "Ciclo Registro / Primera Cita", minWidth = 110
+        )
+      )
+    )
   })
 
   nxtgen_resumen <- shiny::reactive({
     dr <- nxtgen_date_range()
+    data_as_of <- origenes_origin_activity_as_of(joined(), "nxtgen")
     origenes_resumen_bundle(
       joined(),
       "nxtgen",
+      as_of = data_as_of,
       start = dr$start,
       end = dr$end,
       granularity = nxtgen_granularity()
     )
   })
 
+  brokers_persona_keys <- shiny::reactive({
+    emb <- input$brokers_filter_embajador %||% ""
+    canal <- input$brokers_filter_canal %||% ""
+    if (nzchar(emb)) {
+      return(emb)
+    }
+    if (!nzchar(canal)) {
+      return(NULL)
+    }
+    personas <- origenes_brokers_personas(brokers_roster())
+    personas$key[!is.na(personas$canal) & personas$canal == canal]
+  })
+
+  shiny::observeEvent(brokers_roster(), {
+    roster <- brokers_roster()
+    shiny::req(nrow(roster) > 0)
+    canales <- sort(unique(roster$canal[!is.na(roster$canal) & nzchar(roster$canal)]))
+    selected <- shiny::isolate(input$brokers_filter_canal %||% "")
+    if (!selected %in% c("", canales)) {
+      selected <- ""
+    }
+    shiny::updateSelectizeInput(
+      session,
+      "brokers_filter_canal",
+      choices = c("Todos" = "", stats::setNames(canales, canales)),
+      selected = selected
+    )
+  }, ignoreInit = FALSE)
+
+  shiny::observeEvent(
+    list(brokers_roster(), input$brokers_filter_canal),
+    {
+      roster <- brokers_roster()
+      shiny::req(nrow(roster) > 0)
+      personas <- origenes_brokers_personas(
+        roster,
+        con_cita = origenes_brokers_app_cita_keys(brokers_origin_obj())
+      )
+      canal <- input$brokers_filter_canal %||% ""
+      if (nzchar(canal)) {
+        personas <- personas[!is.na(personas$canal) & personas$canal == canal, , drop = FALSE]
+      }
+      personas <- personas[
+        !is.na(personas$key) & nzchar(personas$key) &
+          !is.na(personas$label) & nzchar(personas$label),
+        ,
+        drop = FALSE
+      ]
+      selected <- shiny::isolate(input$brokers_filter_embajador %||% "")
+      if (!selected %in% c("", personas$key)) {
+        selected <- ""
+      }
+      shiny::updateSelectizeInput(
+        session,
+        "brokers_filter_embajador",
+        choices = c("Todos" = "", stats::setNames(personas$key, personas$label)),
+        selected = selected
+      )
+    },
+    ignoreInit = FALSE
+  )
+
   brokers_resumen <- shiny::reactive({
     dr <- brokers_date_range()
+    data_as_of <- origenes_origin_activity_as_of(joined(), "broker")
     origenes_resumen_bundle(
       joined(),
       "broker",
+      as_of = data_as_of,
       start = dr$start,
       end = dr$end,
-      granularity = brokers_granularity()
+      granularity = brokers_granularity(),
+      roster = brokers_roster(),
+      embajador_keys = brokers_persona_keys()
     )
   })
 
@@ -716,10 +1219,12 @@ origenes_server <- function(input, output, session) {
     if (!identical(nxtgen_granularity(), "anual")) {
       return(NULL)
     }
-    dr <- origenes_ytd_date_range()
+    data_as_of <- origenes_origin_activity_as_of(joined(), "nxtgen")
+    dr <- origenes_ytd_date_range(data_as_of)
     origenes_resumen_bundle(
       joined(),
       "nxtgen",
+      as_of = data_as_of,
       start = dr$start,
       end = dr$end,
       granularity = "mensual"
@@ -730,13 +1235,20 @@ origenes_server <- function(input, output, session) {
     if (!identical(brokers_granularity(), "anual")) {
       return(NULL)
     }
-    dr <- origenes_ytd_date_range()
+    data_as_of <- origenes_origin_activity_as_of(joined(), "broker")
+    dr <- origenes_default_date_range_for_granularity(
+      "anual",
+      as_of = data_as_of,
+      origin_key = "broker"
+    )
     origenes_resumen_bundle(
       joined(),
       "broker",
+      as_of = data_as_of,
       start = dr$start,
       end = dr$end,
-      granularity = "mensual"
+      granularity = "mensual",
+      roster = brokers_roster()
     )
   })
 

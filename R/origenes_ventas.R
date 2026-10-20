@@ -23,7 +23,10 @@ origenes_fmt_recompra <- function(x) {
 
 origenes_fmt_date_sheets <- function(d) {
   d <- as.Date(d)
-  ifelse(is.na(d), NA_character_, format(d, "%d/%m/%Y"))
+  out <- rep(NA_character_, length(d))
+  ok <- !is.na(d)
+  out[ok] <- format(d[ok], "%d/%m/%Y")
+  out
 }
 
 origenes_hub_contact_phone_email <- function(root = Sys.getenv("ORIGENES_APP_ROOT", ".")) {
