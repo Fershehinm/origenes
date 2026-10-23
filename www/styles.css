@@ -1297,6 +1297,19 @@ button.or-resumen-kpi--accent .or-resumen-kpi__value,
   min-height: 290px;
 }
 
+/* Primera cita / Post graduación: sin el alto de plotly ni texto pegado al borde */
+.or-chart-card:has(.or-progress-block) .or-chart-card__body,
+.or-chart-card:has(.or-progress-empty) .or-chart-card__body {
+  min-height: 0;
+  padding: 0.25rem 1.5rem 1.35rem;
+}
+
+.or-chart-card:has(.or-progress-block) .card-header,
+.or-chart-card:has(.or-progress-empty) .card-header {
+  min-height: 0;
+  padding-bottom: 0.35rem;
+}
+
 .or-series-controls {
   margin: 0 0 0.55rem;
 }
@@ -1339,8 +1352,10 @@ button.or-resumen-kpi--accent .or-resumen-kpi__value,
 .or-progress-block {
   display: flex;
   flex-direction: column;
-  gap: 0.7rem;
-  padding: 0.35rem 0.15rem 0.6rem;
+  gap: 0.85rem;
+  padding: 0.55rem 0 0.15rem;
+  width: 100%;
+  box-sizing: border-box;
 }
 
 .or-progress-block__help {
@@ -1353,7 +1368,7 @@ button.or-resumen-kpi--accent .or-resumen-kpi__value,
 .or-progress-track {
   display: flex;
   width: 100%;
-  height: 2.1rem;
+  height: 2.35rem;
   overflow: hidden;
   border-radius: 999px;
   background: rgba(23, 35, 29, 0.08);
@@ -1430,7 +1445,7 @@ button.or-resumen-kpi--accent .or-resumen-kpi__value,
 }
 
 .or-progress-empty {
-  padding: 1rem 0.2rem;
+  padding: 0.85rem 0 0.35rem;
   color: var(--or-muted);
 }
 
@@ -1851,59 +1866,28 @@ footer.footer {
 
 .or-brokers-roster {
   display: grid;
-  gap: 1rem;
+  gap: 0.65rem;
   margin-top: 0.75rem;
 }
 
-.or-brokers-roster__intro h2 {
-  margin: 0 0 0.35rem;
-  font-size: 1.35rem;
-}
-
-.or-brokers-roster__intro p {
-  margin: 0;
-  max-width: 52rem;
-  color: var(--or-muted, #5c6570);
-  font-size: 0.95rem;
-}
-
-.or-brokers-roster__editor {
-  padding: 1rem 1.1rem;
-}
-
-.or-brokers-roster__fields {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 0.75rem 1rem;
-  align-items: end;
-}
-
-.or-brokers-roster__fields .shiny-input-container {
-  margin-bottom: 0;
-}
-
-.or-brokers-roster__fields .checkbox {
-  padding-top: 1.4rem;
-}
-
-.or-brokers-roster__fields .btn {
-  justify-self: start;
-}
-
-.or-brokers-roster__actions {
-  grid-column: 1 / -1;
+.or-brokers-roster__toolbar {
   display: flex;
-  flex-wrap: wrap;
-  gap: 0.6rem;
-  align-items: center;
+  justify-content: flex-start;
+  align-items: flex-end;
+  width: 100%;
+}
+
+.or-brokers-roster-card .card-header h3 {
+  margin: 0;
 }
 
 .or-brokers-roster__tools {
   display: flex;
   flex-wrap: wrap;
   align-items: flex-end;
-  gap: 0.75rem 1.25rem;
-  margin: 0 0 0.85rem;
+  justify-content: flex-start;
+  gap: 0.65rem 1rem;
+  margin: 0;
 }
 
 .or-brokers-roster__tools .shiny-input-container {
@@ -1923,27 +1907,42 @@ footer.footer {
 
 .or-brokers-roster__table {
   overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+  padding: 0 0 0.35rem;
+}
+
+.or-brokers-roster__table .Reactable,
+.or-brokers-roster__table .or-roster-rt {
+  font-size: 1.02rem;
 }
 
 .or-brokers-roster__table .rt-table {
   border-collapse: separate;
   border-spacing: 0;
+  width: max-content;
+  min-width: 100%;
 }
 
 .or-brokers-roster__table .rt-th,
 .or-brokers-roster__table .rt-td {
-  border-right: 1px solid var(--or-line, #e5e7eb);
-  padding-left: 0.55rem;
-  padding-right: 0.55rem;
+  border-right: 1px solid rgba(28, 36, 41, 0.1);
+  border-bottom: 1px solid var(--or-line);
+  box-sizing: border-box;
 }
 
 .or-brokers-roster__table .rt-th {
-  border-bottom: 1px solid var(--or-line, #d1d5db);
+  background: #f3f0ea !important;
+  color: var(--or-muted);
+  font-size: 0.76rem !important;
+  font-weight: 650 !important;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
   white-space: normal !important;
   line-height: 1.3;
   vertical-align: bottom;
   overflow: visible !important;
   text-overflow: unset !important;
+  user-select: none;
 }
 
 .or-brokers-roster__table .rt-th .rt-th-inner,
@@ -1958,8 +1957,13 @@ footer.footer {
   border-right: 0;
 }
 
-.or-brokers-roster__table .rt-tr:not(:last-child) .rt-td {
-  border-bottom: 1px solid color-mix(in srgb, var(--or-line, #e5e7eb) 70%, transparent);
+.or-brokers-roster__table .rt-tbody .rt-tr:hover .rt-td {
+  background: rgba(31, 106, 74, 0.07) !important;
+}
+
+.or-brokers-roster__table .rt-tbody .rt-tr:hover .rt-td-sticky-left,
+.or-brokers-roster__table .rt-tbody .rt-tr:hover .rt-td[style*="sticky"] {
+  background: #f4faf6 !important;
 }
 
 .or-brokers-roster__table .or-roster-select,
@@ -1967,12 +1971,20 @@ footer.footer {
   width: 100%;
   max-width: 14rem;
   min-height: 1.85rem;
-  padding: 0.15rem 0.35rem;
+  padding: 0.2rem 0.4rem;
   border: 1px solid var(--or-line);
   border-radius: 0.35rem;
   background: #fff;
-  font-size: 0.78rem;
+  font-size: 0.88rem;
   line-height: 1.2;
+  cursor: text;
+  pointer-events: auto;
+  position: relative;
+  z-index: 1;
+}
+
+.or-brokers-roster__table .rt-td:has(.or-roster-input) {
+  cursor: text;
 }
 
 .or-brokers-roster__table .or-roster-input {
@@ -1982,29 +1994,6 @@ footer.footer {
 .or-brokers-roster__table .or-roster-input[data-field="fecha_graduacion"],
 .or-brokers-roster__table .or-roster-input[data-field="generacion"] {
   max-width: 8.5rem;
-}
-
-.or-brokers-roster__more {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 0.65rem 1rem;
-  margin-top: 0.85rem;
-  padding-bottom: 0.5rem;
-}
-
-.or-brokers-roster__more-meta {
-  font-size: 0.82rem;
-  color: var(--or-muted, #6b7280);
-}
-
-.or-brokers-roster__more-btn {
-  border: 1px solid var(--or-line);
-  background: #fff;
-}
-
-.or-brokers-roster__more-all {
-  padding-left: 0;
 }
 
 .or-roster-delete {
@@ -2025,12 +2014,6 @@ footer.footer {
   background: #f8e8e8;
   color: #8d1f1f;
   outline: none;
-}
-
-@media (max-width: 800px) {
-  .or-brokers-roster__fields {
-    grid-template-columns: minmax(0, 1fr);
-  }
 }
 
 @media (max-width: 560px) {

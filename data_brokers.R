@@ -789,8 +789,9 @@ brokers_fmt_pct <- function(num, den) {
 brokers_fmt_money <- function(x) {
   dplyr::if_else(
     is.na(x) | !is.finite(x),
-    "$0",
-    scales::label_dollar(prefix = "$", big.mark = ",", accuracy = 1)(x)
+    "$0.00",
+    # Sheets: $11,736,677.85
+    scales::label_dollar(prefix = "$", big.mark = ",", accuracy = 0.01)(x)
   )
 }
 

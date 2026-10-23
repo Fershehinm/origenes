@@ -20,4 +20,6 @@ Imports:
     jsonlite
 Suggests:
     rsconnect
+Config/Needs/deploy:
+    rsconnect
 License: MIT

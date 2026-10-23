@@ -9,7 +9,8 @@ origenes_money <- function(x, compact = FALSE) {
       accuracy = 0.1
     )(x))
   }
-  scales::label_dollar(prefix = "$", big.mark = ",", accuracy = 1)(x)
+  # Sheets: $11,736,677.85
+  scales::label_dollar(prefix = "$", big.mark = ",", accuracy = 0.01)(x)
 }
 
 origenes_period_header_ui <- function(label, span_label, range_label) {
@@ -56,7 +57,7 @@ origenes_resumen_header_ui <- function(bundle, prefix) {
       origenes_resumen_kpi(
         "Agendadas",
         nxtgen_fmt_num(k$citas_agendadas),
-        paste0(nxtgen_fmt_num(k$citas_nuevas), " primeras realizadas"),
+        paste0(nxtgen_fmt_num(k$citas_nuevas), " con creación en gen"),
         id = paste0(prefix, "_kpi_resumen_agendadas")
       ),
       origenes_resumen_kpi(
@@ -780,22 +781,6 @@ origenes_server <- function(input, output, session) {
     )
   })
 
-  brokers_roster_page_size <- 50L
-  brokers_roster_visible_n <- shiny::reactiveVal(brokers_roster_page_size)
-  shiny::observeEvent(
-    brokers_roster(),
-    {
-      brokers_roster_visible_n(brokers_roster_page_size)
-    },
-    ignoreNULL = TRUE
-  )
-  shiny::observeEvent(input$brokers_roster_load_more, {
-    brokers_roster_visible_n(brokers_roster_visible_n() + brokers_roster_page_size)
-  })
-  shiny::observeEvent(input$brokers_roster_load_all, {
-    brokers_roster_visible_n(.Machine$integer.max)
-  })
-
   brokers_upsert_override <- function(key, patch) {
     roster <- brokers_roster()
     shiny::req(nzchar(key %||% ""), nrow(roster) > 0)
@@ -981,58 +966,23 @@ origenes_server <- function(input, output, session) {
       )
   })
 
-  shiny::observeEvent(
-    list(input$brokers_roster_col, input$brokers_roster_col_filter),
-    {
-      brokers_roster_visible_n(brokers_roster_page_size)
-    },
-    ignoreInit = TRUE
-  )
-
-  output$brokers_roster_load_more_ui <- shiny::renderUI({
-    shiny::req(identical(input$brokers_subtab %||% "", "embajadores"))
-    show <- brokers_roster_filtered()
-    shiny::req(nrow(show) >= 0)
-    visible <- min(brokers_roster_visible_n(), nrow(show))
-    remaining <- nrow(show) - visible
-    if (remaining <= 0) {
-      return(shiny::div(
-        class = "or-brokers-roster__more",
-        shiny::span(
-          class = "or-brokers-roster__more-meta",
-          paste0("Mostrando ", nrow(show), " de ", nrow(show))
-        )
-      ))
-    }
-    next_chunk <- min(brokers_roster_page_size, remaining)
-    shiny::div(
-      class = "or-brokers-roster__more",
-      shiny::span(
-        class = "or-brokers-roster__more-meta",
-        paste0("Mostrando ", visible, " de ", nrow(show))
-      ),
-      shiny::actionButton(
-        "brokers_roster_load_more",
-        paste0("Cargar más (+", next_chunk, ")"),
-        class = "btn-sm or-brokers-roster__more-btn"
-      ),
-      shiny::actionButton(
-        "brokers_roster_load_all",
-        paste0("Mostrar todos (", remaining, " restantes)"),
-        class = "btn-sm btn-link or-brokers-roster__more-all"
-      )
-    )
-  })
-
   output$brokers_roster_table <- reactable::renderReactable({
     # No construir la tabla hasta abrir la pestaña (evita colgar el arranque).
     shiny::req(identical(input$brokers_subtab %||% "", "embajadores"))
-    show_all <- brokers_roster_filtered()
-    shiny::req(nrow(show_all) > 0)
-    visible_n <- min(brokers_roster_visible_n(), nrow(show_all))
-    show <- utils::head(show_all, visible_n)
+    show <- brokers_roster_filtered()
+    shiny::req(nrow(show) > 0)
     keys <- as.character(show$nombre_key)
-    header_style <- list(whiteSpace = "normal", lineHeight = "1.3")
+    header_style <- list(
+      whiteSpace = "normal",
+      lineHeight = "1.3",
+      fontSize = "0.76rem",
+      textTransform = "uppercase",
+      letterSpacing = "0.03em",
+      color = "#6f786f",
+      fontWeight = 650,
+      background = "#f3f0ea",
+      borderColor = "#ddd8ce"
+    )
     reactable::reactable(
       show,
       filterable = FALSE,
@@ -1040,24 +990,61 @@ origenes_server <- function(input, output, session) {
       pagination = FALSE,
       defaultSorted = list(.fecha_reg = "desc", Nombre = "asc"),
       highlight = TRUE,
-      compact = TRUE,
+      bordered = FALSE,
+      striped = FALSE,
+      compact = FALSE,
       wrap = FALSE,
+      class = "or-roster-rt",
       defaultColDef = reactable::colDef(
         headerStyle = header_style,
-        sortNALast = TRUE
+        sortNALast = TRUE,
+        minWidth = 120,
+        style = list(
+          fontSize = "1.02rem",
+          borderColor = "#ddd8ce",
+          padding = "0.8rem 0.95rem"
+        )
+      ),
+      theme = reactable::reactableTheme(
+        style = list(fontFamily = "inherit"),
+        borderColor = "#ddd8ce",
+        headerStyle = header_style,
+        cellStyle = list(
+          fontSize = "1.02rem",
+          borderColor = "#ddd8ce",
+          padding = "0.8rem 0.95rem"
+        ),
+        rowHighlightStyle = list(background = "rgba(31, 106, 74, 0.07)")
       ),
       columns = list(
         nombre_key = reactable::colDef(show = FALSE),
         .fecha_reg = reactable::colDef(
           name = "Fecha de registro",
           minWidth = 150,
-          headerStyle = header_style,
           cell = function(value) {
             out <- origenes_fmt_date_sheets(value)
             if (is.na(out) || identical(out, "NA")) "" else out
           }
         ),
-        Nombre = reactable::colDef(name = "Nombre", minWidth = 180),
+        Nombre = reactable::colDef(
+          name = "Nombre",
+          minWidth = 200,
+          sticky = "left",
+          style = list(
+            fontWeight = 650,
+            background = "#fff",
+            borderRight = "1px solid rgba(28, 36, 41, 0.16)",
+            boxShadow = "4px 0 8px rgba(28, 36, 41, 0.06)"
+          ),
+          headerStyle = utils::modifyList(
+            header_style,
+            list(
+              background = "#f3f0ea",
+              borderRight = "1px solid rgba(28, 36, 41, 0.16)",
+              boxShadow = "4px 0 8px rgba(28, 36, 41, 0.06)"
+            )
+          )
+        ),
         `Pertenece a un equipo` = reactable::colDef(
           name = "Pertenece a un equipo",
           minWidth = 170

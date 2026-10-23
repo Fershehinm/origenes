@@ -376,26 +376,56 @@ origenes_ventas_chart_proyecto <- function(tbl, source, top_n = 10L) {
   origenes_plotly_finish(p, source = source)
 }
 
-origenes_ventas_chart_gen <- function(tbl, source) {
-  if (!nrow(tbl) || !"Gen Venta" %in% names(tbl)) {
-    return(origenes_plotly_empty(source = source))
-  }
+origenes_ventas_chart_gen <- function(tbl, source, start = NULL, end = NULL) {
   cols <- origenes_viz_colors()
-  df <- tbl |>
-    dplyr::mutate(
-      gen = dplyr::coalesce(
-        dplyr::na_if(stringr::str_squish(as.character(.data[["Gen Venta"]])), ""),
-        "(sin gen)"
-      ),
-      precio = suppressWarnings(as.numeric(.data[["Precio de venta"]]))
-    ) |>
-    dplyr::group_by(.data$gen) |>
-    dplyr::summarise(
-      unidades = dplyr::n(),
-      fact = sum(.data$precio, na.rm = TRUE),
-      .groups = "drop"
-    ) |>
-    dplyr::arrange(.data$gen)
+  # Eje X fijo: últimos N meses (ceros incluidos), no solo meses con venta.
+  if (is.null(start) || is.null(end)) {
+    dr <- origenes_chart_date_range(n_months = 6L)
+    start <- dr$start
+    end <- dr$end
+  }
+  start <- as.Date(start)
+  end <- as.Date(end)
+  month_starts <- seq(
+    lubridate::floor_date(start, "month"),
+    lubridate::floor_date(end, "month"),
+    by = "month"
+  )
+  spine <- tibble::tibble(
+    gen = origenes_ym_label(month_starts),
+    gen_ord = seq_along(month_starts)
+  )
+
+  if (!nrow(tbl) || !"Gen Venta" %in% names(tbl)) {
+    df <- spine |>
+      dplyr::mutate(unidades = 0L, fact = 0)
+  } else {
+    agg <- tbl |>
+      dplyr::mutate(
+        gen = dplyr::na_if(stringr::str_squish(as.character(.data[["Gen Venta"]])), ""),
+        precio = suppressWarnings(as.numeric(.data[["Precio de venta"]]))
+      ) |>
+      dplyr::filter(!is.na(.data$gen), nzchar(.data$gen)) |>
+      dplyr::group_by(.data$gen) |>
+      dplyr::summarise(
+        unidades = dplyr::n(),
+        fact = sum(.data$precio, na.rm = TRUE),
+        .groups = "drop"
+      )
+    df <- spine |>
+      dplyr::left_join(agg, by = "gen") |>
+      dplyr::mutate(
+        unidades = as.integer(dplyr::coalesce(.data$unidades, 0L)),
+        fact = dplyr::coalesce(.data$fact, 0)
+      ) |>
+      dplyr::arrange(.data$gen_ord)
+  }
+
+  max_u <- max(df$unidades, na.rm = TRUE)
+  max_f <- max(df$fact, na.rm = TRUE)
+  if (!is.finite(max_u) || max_u <= 0) max_u <- 1
+  if (!is.finite(max_f) || max_f <= 0) max_f <- 1
+
   p <- plotly::plot_ly(source = source) |>
     plotly::add_bars(
       data = df,
@@ -417,22 +447,45 @@ origenes_ventas_chart_gen <- function(tbl, source) {
       yaxis = "y2",
       key = ~gen,
       customdata = ~gen,
-      line = list(color = cols$gold, width = 2),
+      line = list(color = cols$gold, width = 2.5, shape = "linear"),
       marker = list(color = cols$gold, size = 7),
+      connectgaps = FALSE,
       hovertemplate = "Facturación %{x}: %{y:$,.0f}<extra></extra>"
     ) |>
     plotly::layout(
-      yaxis = list(title = "Unidades"),
+      bargap = 0.35,
+      xaxis = list(
+        title = "",
+        type = "category",
+        categoryorder = "array",
+        categoryarray = df$gen,
+        tickangle = -30,
+        automargin = TRUE
+      ),
+      yaxis = list(
+        title = "Unidades",
+        rangemode = "tozero",
+        range = c(0, max_u * 1.2),
+        fixedrange = TRUE,
+        zeroline = TRUE,
+        zerolinecolor = cols$line,
+        gridcolor = "rgba(228, 223, 213, 0.7)"
+      ),
       yaxis2 = list(
         title = "Facturación",
         overlaying = "y",
         side = "right",
         showgrid = FALSE,
-        tickprefix = "$"
-      ),
-      xaxis = list(title = "")
+        rangemode = "tozero",
+        range = c(0, max_f * 1.15),
+        fixedrange = TRUE,
+        tickprefix = "$",
+        zeroline = TRUE,
+        zerolinecolor = cols$line,
+        automargin = TRUE
+      )
     )
-  origenes_plotly_finish(p, source = source)
+  origenes_plotly_finish(p, source = source, margin = list(l = 48, r = 64, t = 40, b = 64))
 }
 
 origenes_ventas_chart_ciclo <- function(tbl, source) {
@@ -586,7 +639,7 @@ origenes_resumen_series_from_tables <- function(bundle) {
   tibble::tibble(
     periodo = period_cols,
     registrados = as.numeric(pick_num_row(emb, "^Registrados totales$|^Registrados$")),
-    primera_cita = as.numeric(pick_num_row(res, "Embajadores con Primera cita")),
+    primera_cita = as.numeric(pick_num_row(res, "Embajadores que trajeron su primer lead")),
     cierres = as.numeric(pick_num_row(conv, "Cierres")),
     facturacion = as.numeric(pick_money_row(res, "Facturación")),
     conv_primera = as.numeric(pick_pct_row(emb, "Conversión primera cita / registrados")),

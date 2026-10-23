@@ -276,6 +276,7 @@ origenes_brokers_select_cell <- function(key, field, value, choices, allow_empty
 
 #' Input de texto por fila (fecha / generación / conciliación / canal).
 #' Devuelve HTML string (más barato que tags htmltools × cientos de filas).
+#' Un solo click enfoca (reactable no se come el primer click) y muestra datalist.
 origenes_brokers_text_cell <- function(key,
                                        field,
                                        value,
@@ -286,7 +287,7 @@ origenes_brokers_text_cell <- function(key,
   value <- htmltools::htmlEscape(as.character(value %||% ""), attribute = TRUE)
   placeholder <- htmltools::htmlEscape(as.character(placeholder %||% ""), attribute = TRUE)
   list_attr <- if (!is.null(list_id) && nzchar(list_id)) {
-    paste0(' list="', htmltools::htmlEscape(list_id, attribute = TRUE), '"')
+    paste0(' list="', htmltools::htmlEscape(list_id, attribute = TRUE), '" autocomplete="off"')
   } else {
     ""
   }
@@ -295,6 +296,8 @@ origenes_brokers_text_cell <- function(key,
     ' placeholder="', placeholder, '"',
     ' data-key="', key, '" data-field="', field, '"',
     list_attr,
+    ' onmousedown="event.stopPropagation()"',
+    ' onclick="if(window.origenesRosterFocusInput){origenesRosterFocusInput(this,event)}else{event.stopPropagation();this.focus();try{this.select()}catch(e){}}"',
     " onchange=\"Shiny.setInputValue('brokers_roster_cell_edit',",
     "{key:this.getAttribute('data-key'),",
     "field:this.getAttribute('data-field'),",
@@ -1202,6 +1205,98 @@ origenes_brokers_assign_fechas_cohorte <- function(emb,
     }
     if (is.na(api[i])) "" else format(api[i], "%Y-%m-%d")
   }, character(1))
+  emb
+}
+
+#' COUNTIFS(Embajadores!K, periodo, Embajadores!I, ">0") — cuenta filas del Sheets.
+#' Una persona duplicada en el export cuenta más de una vez (como en Sheets).
+origenes_brokers_sheets_primera_cita_n <- function(ym,
+                                                   root = Sys.getenv("ORIGENES_APP_ROOT", ".")) {
+  ym <- stringr::str_squish(as.character(ym %||% ""))
+  if (!nzchar(ym) || !grepl("^\\d{4}-\\d{2}$", ym)) {
+    return(NA_integer_)
+  }
+  path <- origenes_brokers_embajadores_sheet_path(root)
+  if (!file.exists(path)) {
+    return(NA_integer_)
+  }
+  raw <- utils::read.csv(path, stringsAsFactors = FALSE, check.names = FALSE, fileEncoding = "UTF-8")
+  if (!"Gen Registro" %in% names(raw)) {
+    return(NA_integer_)
+  }
+  col_i <- intersect(
+    c("Fecha primera cita realizada", "Fecha de primera cita realizada"),
+    names(raw)
+  )
+  if (!length(col_i)) {
+    return(NA_integer_)
+  }
+  fecha_i <- origenes_brokers_parse_sheet_fecha(raw[[col_i[[1]]]])
+  mes <- stringr::str_match(
+    stringr::str_squish(as.character(raw[["Gen Registro"]])),
+    "(\\d{4})\\s*-\\s*(\\d{2})"
+  )
+  mes_lab <- ifelse(is.na(mes[, 2]), NA_character_, paste(mes[, 2], mes[, 3], sep = "-"))
+  as.integer(sum(!is.na(fecha_i) & !is.na(mes_lab) & mes_lab == ym))
+}
+
+#' Columna I del Sheets: Fecha primera cita realizada, indexada por nombre.
+#' Sirve para rellenar fecha_primera_cita cuando el CRM aún no trae la realizada.
+origenes_brokers_sheets_primera_cita_index <- function(root = Sys.getenv("ORIGENES_APP_ROOT", ".")) {
+  path <- origenes_brokers_embajadores_sheet_path(root)
+  empty <- stats::setNames(as.Date(character()), character())
+  if (!file.exists(path)) {
+    return(empty)
+  }
+  raw <- utils::read.csv(path, stringsAsFactors = FALSE, check.names = FALSE, fileEncoding = "UTF-8")
+  col_i <- intersect(
+    c("Fecha primera cita realizada", "Fecha de primera cita realizada"),
+    names(raw)
+  )
+  if (!length(col_i)) {
+    return(empty)
+  }
+  fecha <- origenes_brokers_parse_sheet_fecha(raw[[col_i[[1]]]])
+  alias <- origenes_brokers_fold_alias(root)
+  nombre <- origenes_brokers_canon_key(raw[["Nombre"]], alias)
+  conc <- if ("Conciliacion Nombre" %in% names(raw)) {
+    origenes_brokers_canon_key(raw[["Conciliacion Nombre"]], alias)
+  } else {
+    rep("", length(nombre))
+  }
+  long <- tibble::tibble(
+    canon = c(nombre, conc),
+    fecha = c(fecha, fecha)
+  ) |>
+    dplyr::filter(nzchar(.data$canon), !is.na(.data$fecha)) |>
+    dplyr::group_by(.data$canon) |>
+    dplyr::summarise(fecha = min(.data$fecha), .groups = "drop")
+  stats::setNames(long$fecha, long$canon)
+}
+
+#' Completa fecha_primera_cita / tiene_primera_cita con columna I del Sheets.
+origenes_brokers_apply_sheets_primera_cita <- function(emb,
+                                                      root = Sys.getenv("ORIGENES_APP_ROOT", ".")) {
+  if (is.null(emb) || !nrow(emb)) {
+    return(emb)
+  }
+  idx <- origenes_brokers_sheets_primera_cita_index(root)
+  if (!length(idx)) {
+    return(emb)
+  }
+  alias <- origenes_brokers_fold_alias(root)
+  raw_src <- dplyr::coalesce(
+    dplyr::na_if(stringr::str_squish(as.character(emb$nombre_raw %||% "")), ""),
+    stringr::str_squish(as.character(emb$nombre))
+  )
+  k_raw <- origenes_brokers_canon_key(raw_src, alias)
+  k_nom <- origenes_brokers_canon_key(emb$nombre, alias)
+  sheet_i <- dplyr::coalesce(unname(idx[k_raw]), unname(idx[k_nom]))
+  emb$fecha_primera_cita <- dplyr::coalesce(as.Date(emb$fecha_primera_cita), as.Date(sheet_i))
+  emb$tiene_primera_cita <- !is.na(emb$fecha_primera_cita)
+  if ("gen_primera_cita_realizada" %in% names(emb)) {
+    emb$gen_primera_cita_realizada <- origenes_ym_label(emb$fecha_primera_cita)
+  }
   emb
 }
 

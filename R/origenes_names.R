@@ -139,9 +139,20 @@ origenes_match_key_to_lista <- function(key, lista_keys, lista_names) {
     first <- toks[[1]]
     last <- toks[[length(toks)]]
     fl_hits <- which(vapply(lista_toks, function(lt) {
-      length(lt) >= 2L &&
-        identical(lt[[1]], first) &&
-        identical(lt[[length(lt)]], last)
+      if (length(lt) < 2L) {
+        return(FALSE)
+      }
+      if (!identical(lt[[1]], first) || !identical(lt[[length(lt)]], last)) {
+        return(FALSE)
+      }
+      # Con 3+ tokens exige solape de nombre(s) intermedio(s). Evita
+      # "maria jose aguirre martinez" → "maria de los angeles rivas martinez".
+      if (length(toks) >= 3L || length(lt) >= 3L) {
+        mid_a <- toks[-c(1L, length(toks))]
+        mid_b <- lt[-c(1L, length(lt))]
+        return(length(mid_a) > 0L && length(mid_b) > 0L && any(mid_a %in% mid_b))
+      }
+      TRUE
     }, logical(1)))
     if (length(fl_hits) == 1L) {
       return(lista_names[[fl_hits]])

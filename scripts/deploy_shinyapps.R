@@ -29,6 +29,7 @@ if (length(missing)) {
 }
 
 data_files <- c(
+  "data/canonical/origenes_joined.rds",
   "data/cache/latest.rds",
   "data/origenes.rds",
   "data/origenes.csv"
@@ -36,8 +37,8 @@ data_files <- c(
 available_data <- data_files[file.exists(file.path(root, data_files))]
 if (!length(available_data)) {
   warning(
-    "Se publicará la interfaz sin datos. Agrega data/cache/latest.rds, ",
-    "data/origenes.rds o data/origenes.csv para habilitar el dashboard.",
+    "Se publicará la interfaz sin datos. Agrega data/canonical/origenes_joined.rds ",
+    "(Rscript scripts/build_origenes_canonical.R) u otro dataset en data/.",
     call. = FALSE
   )
 }

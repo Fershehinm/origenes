@@ -66,6 +66,7 @@ Embajadores desde el campo `Ambassador` de meetings. Activo = cita en
 El nombre por defecto es `origenes` en la cuenta `division2cbr`:
 
 ```sh
+Rscript scripts/build_origenes_canonical.R   # data/canonical/origenes_joined.rds
 Rscript scripts/deploy_shinyapps.R
 ```
 
@@ -74,3 +75,27 @@ Para cambiar el nombre o la cuenta:
 ```sh
 Rscript scripts/deploy_shinyapps.R otro-nombre otra-cuenta
 ```
+
+## Refresh diario (GitHub Actions)
+
+El workflow [`.github/workflows/daily-refresh.yml`](.github/workflows/daily-refresh.yml)
+corre cada día a las 06:00 America/Mexico_City (`cron: 0 12 * * *`) y también se
+puede disparar a mano (Actions → Daily refresh → Run workflow):
+
+1. Reconstruye `data/canonical/origenes_joined.rds` desde Ambassadors + Bubble.
+2. Redespliega la app a shinyapps.io con ese canónico.
+
+Secrets requeridos en el repo (Settings → Secrets and variables → Actions):
+
+| Secret | Uso |
+|--------|-----|
+| `BUBBLE_BASE` | Bubble Data API |
+| `BUBBLE_TOKEN` | auth Bubble |
+| `AMBASSADORS_BASE` | API embajadores |
+| `AMBASSADORS_TOKEN` | auth Ambassadors |
+| `SHINYAPPS_TOKEN` | token rsconnect |
+| `SHINYAPPS_SECRET` | secret rsconnect |
+| `ORIGENES_SHINYAPPS_ACCOUNT` | opcional; default `division2cbr` |
+
+El CSV Embajadores en `data/brokers/raw/` no se actualiza en este job (sigue como
+snapshot en el repo). Ver `env.example` para el resto de variables locales.

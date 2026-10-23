@@ -5,6 +5,11 @@ origenes_ventas_money_compact <- function(x) {
   origenes_money(x, compact = TRUE)
 }
 
+#' Precio estilo Sheets: $11,736,677.85
+origenes_ventas_money_full <- function(x) {
+  origenes_money(x, compact = FALSE)
+}
+
 origenes_ventas_chr_display <- function(x) {
   x <- stringr::str_squish(as.character(x))
   x[is.na(x) | !nzchar(x)] <- "—"
@@ -176,14 +181,14 @@ origenes_ventas_cierre_reactable <- function(tbl) {
       precio = reactable::colDef(
         name = "Precio",
         align = "right",
-        minWidth = 100,
+        minWidth = 130,
         cell = function(value) {
           if (!is.finite(value) || value <= 0) {
             return("—")
           }
           htmltools::tags$span(
             class = "or-drill-money-pill",
-            origenes_ventas_money_compact(value)
+            origenes_ventas_money_full(value)
           )
         }
       ),

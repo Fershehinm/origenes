@@ -444,42 +444,44 @@ origenes_brokers_embajadores_ui <- function() {
   )
   shiny::div(
     class = "or-brokers-roster",
-    shiny::div(
-      class = "or-brokers-roster__intro",
-      shiny::h2("Embajadores")
-    ),
     # Datalists únicos (no repetir <option> en cada fila).
     htmltools::HTML(origenes_brokers_datalist_html("brokers_gen_choices", paste("Gen", seq_len(5L)))),
     htmltools::HTML(origenes_brokers_datalist_html("brokers_canal_choices", canal_opts)),
     shiny::uiOutput("brokers_crm_datalist"),
     shiny::div(
-      class = "or-brokers-roster__tools",
-      shiny::selectInput(
-        "brokers_roster_col",
-        "Columna",
-        choices = col_choices,
-        selected = "",
-        width = "260px"
-      ),
-      shiny::conditionalPanel(
-        condition = "input.brokers_roster_col && input.brokers_roster_col.length > 0",
-        shiny::div(
-          class = "or-brokers-roster__tools-col",
-          shiny::textInput(
-            "brokers_roster_col_filter",
-            "Filtrar",
-            value = "",
-            placeholder = "Contiene…",
-            width = "220px"
+      class = "or-brokers-roster__toolbar",
+      shiny::div(
+        class = "or-brokers-roster__tools",
+        shiny::selectInput(
+          "brokers_roster_col",
+          "Columna",
+          choices = col_choices,
+          selected = "",
+          width = "220px"
+        ),
+        shiny::conditionalPanel(
+          condition = "input.brokers_roster_col && input.brokers_roster_col.length > 0",
+          shiny::div(
+            class = "or-brokers-roster__tools-col",
+            shiny::textInput(
+              "brokers_roster_col_filter",
+              "Filtrar",
+              value = "",
+              placeholder = "Contiene…",
+              width = "200px"
+            )
           )
         )
       )
     ),
-    shiny::div(
-      class = "or-metric-table-wrap or-brokers-roster__table",
-      reactable::reactableOutput("brokers_roster_table", width = "100%")
-    ),
-    shiny::uiOutput("brokers_roster_load_more_ui")
+    bslib::card(
+      class = "or-card or-metric-card or-brokers-roster-card",
+      bslib::card_header(shiny::h3("Embajadores")),
+      shiny::div(
+        class = "or-metric-table-wrap or-brokers-roster__table",
+        reactable::reactableOutput("brokers_roster_table", width = "100%")
+      )
+    )
   )
 }
 
@@ -576,8 +578,42 @@ origenes_ui <- function() {
     window_title = "Origin Analytics | División 2c",
     header = shiny::tags$head(
       shiny::tags$meta(name = "viewport", content = "width=device-width, initial-scale=1"),
-      shiny::tags$link(rel = "stylesheet", type = "text/css", href = "styles.css?v=45"),
+      shiny::tags$link(rel = "stylesheet", type = "text/css", href = "styles.css?v=53"),
       shiny::tags$script(htmltools::HTML(paste(
+        "window.origenesRosterFocusInput = function(el, ev) {",
+        "  if (ev && ev.stopPropagation) ev.stopPropagation();",
+        "  if (!el) return;",
+        "  el.focus();",
+        "  try { el.select(); } catch (e) {}",
+        "  if (el.list) {",
+        "    var v = el.value;",
+        "    el.value = '';",
+        "    try { el.dispatchEvent(new Event('input', { bubbles: true })); } catch (e2) {}",
+        "    el.value = v;",
+        "  }",
+        "};",
+        "document.addEventListener('mousedown', function(ev) {",
+        "  var t = ev.target;",
+        "  if (!t || !t.closest) return;",
+        "  var td = t.closest('.or-brokers-roster__table .rt-td');",
+        "  if (!td) return;",
+        "  var input = t.classList && t.classList.contains('or-roster-input')",
+        "    ? t",
+        "    : td.querySelector('.or-roster-input');",
+        "  if (!input) return;",
+        "  ev.stopPropagation();",
+        "}, true);",
+        "document.addEventListener('click', function(ev) {",
+        "  var t = ev.target;",
+        "  if (!t || !t.closest) return;",
+        "  var td = t.closest('.or-brokers-roster__table .rt-td');",
+        "  if (!td) return;",
+        "  var input = t.classList && t.classList.contains('or-roster-input')",
+        "    ? t",
+        "    : td.querySelector('.or-roster-input');",
+        "  if (!input) return;",
+        "  if (t !== input) { window.origenesRosterFocusInput(input, ev); }",
+        "}, true);",
         "Shiny.addCustomMessageHandler('origenes-htmlwidgets-static-render', function(message) {",
         "  setTimeout(function() {",
         "    if (window.HTMLWidgets && HTMLWidgets.staticRender) { HTMLWidgets.staticRender(); }",

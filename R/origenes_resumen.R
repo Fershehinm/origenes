@@ -30,6 +30,93 @@ origenes_meeting_is_realizada <- function(status_os) {
   origenes_normalize_key(status_os) == "realizada"
 }
 
+#' Gen Cita y Fecha de Creación caen en el mismo mes calendario.
+#' Sheets (Conversión / Citas nuevas Realizadas): no cuenta citas reagendadas
+#' a otro mes distinto al de su Created.Date.
+origenes_meeting_created_in_gen_cita <- function(fecha_cita, fecha_creacion) {
+  fecha_cita <- as.Date(fecha_cita)
+  fecha_creacion <- as.Date(fecha_creacion)
+  !is.na(fecha_cita) &
+    !is.na(fecha_creacion) &
+    format(fecha_cita, "%Y-%m") == format(fecha_creacion, "%Y-%m")
+}
+
+#' Citas Agendadas (Actividad): First.meeting = TRUE, un lead una sola vez.
+origenes_meetings_count_citas_agendadas <- function(meetings) {
+  if (!nrow(meetings)) {
+    return(0L)
+  }
+  m <- meetings
+  primera <- if ("primera_cita" %in% names(m)) {
+    dplyr::coalesce(as.logical(m$primera_cita), FALSE)
+  } else {
+    dplyr::coalesce(as.logical(m$first_meeting), FALSE)
+  }
+  m <- m[primera, , drop = FALSE]
+  if (!nrow(m)) {
+    return(0L)
+  }
+  if (!"lead_contact_id" %in% names(m)) {
+    return(nrow(m))
+  }
+  ids <- as.character(m$lead_contact_id)
+  has <- !is.na(ids) & nzchar(ids)
+  as.integer(length(unique(ids[has])) + sum(!has))
+}
+
+#' Cita Realizada (Conversión / Citas nuevas Realizadas):
+#' Realizada ∧ Created.Date en el mismo mes que Gen Cita (Start.date).
+origenes_meeting_is_cita_realizada_conteo <- function(meetings) {
+  if (!nrow(meetings)) {
+    return(logical())
+  }
+  realizada <- if ("realizada" %in% names(meetings)) {
+    dplyr::coalesce(as.logical(meetings$realizada), FALSE)
+  } else {
+    origenes_meeting_is_realizada(meetings$status_os)
+  }
+  fecha_cita <- as.Date(meetings$fecha_cita %||% meetings$fecha)
+  fecha_creacion <- if ("fecha_creacion" %in% names(meetings)) {
+    as.Date(meetings$fecha_creacion)
+  } else {
+    as.Date(rep(NA, nrow(meetings)))
+  }
+  realizada & origenes_meeting_created_in_gen_cita(fecha_cita, fecha_creacion)
+}
+
+#' Adjunta Created.Date del CRM (Bubble) a meetings del joined.
+origenes_meetings_attach_fecha_creacion <- function(meetings,
+                                                   root = Sys.getenv("ORIGENES_APP_ROOT", ".")) {
+  if (!nrow(meetings)) {
+    meetings$fecha_creacion <- as.Date(character())
+    return(meetings)
+  }
+  if ("fecha_creacion" %in% names(meetings) && any(!is.na(meetings$fecha_creacion))) {
+    meetings$fecha_creacion <- as.Date(meetings$fecha_creacion)
+    return(meetings)
+  }
+  rscg <- tryCatch(origenes_load_rscg_bundle(root), error = function(e) NULL)
+  mr <- rscg$meetings_raw %||% tibble::tibble()
+  if (!nrow(mr) || !"Created.Date" %in% names(mr)) {
+    meetings$fecha_creacion <- as.Date(rep(NA, nrow(meetings)))
+    return(meetings)
+  }
+  id_raw <- origenes_id_norm(mr$X_id %||% mr$`_id` %||% mr$id)
+  created <- origenes_parse_date(mr$Created.Date)
+  lookup <- tibble::tibble(
+    .join_id = id_raw,
+    fecha_creacion = as.Date(created)
+  ) |>
+    dplyr::filter(!is.na(.data$.join_id), nzchar(.data$.join_id)) |>
+    dplyr::distinct(.data$.join_id, .keep_all = TRUE)
+
+  mid <- origenes_id_norm(
+    meetings$rscg_meeting_id %||% meetings$id %||% rep(NA_character_, nrow(meetings))
+  )
+  meetings$fecha_creacion <- lookup$fecha_creacion[match(mid, lookup$.join_id)]
+  meetings
+}
+
 #' Fecha de referencia para L (días desde última realizada) y para el fin del
 #' rango visible. Si el cache está atrasado vs Sys.Date(), usa el último día
 #' con actividad/registro para no inventar meses vacíos ni Activos=0 vacuamente.
@@ -91,14 +178,23 @@ origenes_joined_activity_as_of <- function(joined, as_of = Sys.Date()) {
 
 #' Enriquece embajadores con actividad desde meetings RSCG.
 #' Activos = COUNTIFS(Gen Registro, periodo, L, "<31")
-#' L = días desde la última cita realizada (as_of - fecha_ultima_realizada).
-origenes_enrich_embajadores <- function(embajadores, meetings, as_of = Sys.Date()) {
+#' L Sheets "Activos (Cita últimos 30 días)" = días desde última cita
+#' agendada/realizada (col M), no solo realizadas.
+#'
+#' `primera_cita_desde`: ventana del VLOOKUP Sheets (Citas Brokers Academy).
+#' Si se setea (p.ej. 2026-01-01), col I = primera **Realizada** en/desde esa
+#' fecha — no la primera de toda la vida CRM (que deja fuera a Angela/Daniel).
+origenes_enrich_embajadores <- function(embajadores,
+                                        meetings,
+                                        as_of = Sys.Date(),
+                                        primera_cita_desde = NULL) {
   if (!nrow(embajadores)) {
     return(embajadores |>
       dplyr::mutate(
         fecha_primera_cita = as.Date(NA),
         fecha_ultima_cita = as.Date(NA),
         fecha_ultima_realizada = as.Date(NA),
+        gen_primera_cita_realizada = NA_character_,
         dias_desde_ultima_realizada = NA_integer_,
         n_citas = 0L,
         tiene_cita_agendada = FALSE,
@@ -109,6 +205,11 @@ origenes_enrich_embajadores <- function(embajadores, meetings, as_of = Sys.Date(
   }
 
   as_of <- as.Date(as_of)
+  primera_cita_desde <- if (is.null(primera_cita_desde)) {
+    as.Date(NA)
+  } else {
+    as.Date(primera_cita_desde)
+  }
   active_days <- brokers_active_window_days()
   # Sheets: L < 31 con ventana de 30 días ⇒ dias en 0..30
   l_lt <- as.integer(active_days) + 1L
@@ -129,12 +230,24 @@ origenes_enrich_embajadores <- function(embajadores, meetings, as_of = Sys.Date(
       n_citas = dplyr::n(),
       # Sheets col M: Fecha de última cita agendada/realizada
       fecha_ultima_cita = as.Date(max(.data$fecha, na.rm = TRUE)),
-      # Sheets col I: Fecha primera cita realizada
+      # Sheets col I: Fecha primera cita realizada (CRM).
+      # Ventana academy: 1ª Realizada desde esa fecha. Sin ventana: First+Realizada
+      # (fallback First.meeting). Huecos se completan luego con I del Sheets.
       fecha_primera_cita = {
-        fechas <- .data$fecha[.data$realizada & .data$es_primera]
-        if (length(fechas)) as.Date(min(fechas)) else as.Date(NA)
+        if (!is.na(primera_cita_desde)) {
+          fechas <- .data$fecha[.data$realizada & .data$fecha >= primera_cita_desde]
+          if (length(fechas)) as.Date(min(fechas)) else as.Date(NA)
+        } else {
+          fechas_r <- .data$fecha[.data$realizada & .data$es_primera]
+          if (length(fechas_r)) {
+            as.Date(min(fechas_r))
+          } else {
+            fechas <- .data$fecha[.data$es_primera]
+            if (length(fechas)) as.Date(min(fechas)) else as.Date(NA)
+          }
+        }
       },
-      # Sheets col L base: fecha de última cita realizada
+      # Sheets col: fecha de última cita realizada
       fecha_ultima_realizada = {
         fechas <- .data$fecha[.data$realizada]
         if (length(fechas)) as.Date(max(fechas)) else as.Date(NA)
@@ -155,21 +268,22 @@ origenes_enrich_embajadores <- function(embajadores, meetings, as_of = Sys.Date(
       fecha_ultima_cita = as.Date(.data$fecha_ultima_cita),
       fecha_primera_cita = as.Date(.data$fecha_primera_cita),
       fecha_ultima_realizada = as.Date(.data$fecha_ultima_realizada),
+      # Sheets col N: Gen primera cita realizada
+      gen_primera_cita_realizada = origenes_ym_label(.data$fecha_primera_cita),
       # COUNTIFS(..., M>0)
       tiene_cita_agendada = !is.na(.data$fecha_ultima_cita),
       # COUNTIFS(..., I>0)
       tiene_primera_cita = !is.na(.data$fecha_primera_cita),
       tiene_mas_de_una_cita = .data$n_citas > 1L,
-      # L = as_of - fecha última realizada
       dias_desde_ultima_realizada = dplyr::if_else(
         is.na(.data$fecha_ultima_realizada),
         NA_integer_,
         as.integer(as_of - .data$fecha_ultima_realizada)
       ),
-      # COUNTIFS(..., L, "<31")
-      activo_30d = !is.na(.data$dias_desde_ultima_realizada) &
-        .data$dias_desde_ultima_realizada >= 0L &
-        .data$dias_desde_ultima_realizada < l_lt
+      # Activos: L sobre última cita cualquier status (alineado a label Sheets)
+      activo_30d = !is.na(.data$fecha_ultima_cita) &
+        as.integer(as_of - .data$fecha_ultima_cita) >= 0L &
+        as.integer(as_of - .data$fecha_ultima_cita) < l_lt
     )
 }
 
@@ -217,7 +331,64 @@ origenes_resumen_prepare <- function(origin_obj,
       )
   }
 
-  emb <- origenes_enrich_embajadores(emb_raw, meetings_raw, as_of = as_of)
+  # Re-VLOOKUP nombres con name_map actual (el joined puede traer
+  # lista_match viejos / demasiado agresivos, p.ej. Maria Jose → Angeles).
+  if (identical(origin_key, "broker")) {
+    observed <- c(
+      if (nrow(meetings_raw) && "embajador_raw" %in% names(meetings_raw)) {
+        meetings_raw$embajador_raw
+      } else if (nrow(meetings_raw)) {
+        meetings_raw$embajador
+      } else {
+        NULL
+      },
+      if ("nombre_raw" %in% names(emb_raw)) emb_raw$nombre_raw else NULL,
+      if ("nombre" %in% names(emb_raw)) emb_raw$nombre else NULL
+    )
+    name_map <- origenes_build_name_map("broker", observed_names = observed)
+    if (nrow(meetings_raw) && "embajador" %in% names(meetings_raw)) {
+      raw_emb <- if ("embajador_raw" %in% names(meetings_raw)) {
+        dplyr::coalesce(
+          dplyr::na_if(stringr::str_squish(as.character(meetings_raw$embajador_raw)), ""),
+          dplyr::na_if(stringr::str_squish(as.character(meetings_raw$embajador)), "")
+        )
+      } else {
+        dplyr::na_if(stringr::str_squish(as.character(meetings_raw$embajador)), "")
+      }
+      meetings_raw$embajador <- origenes_resolve_names(raw_emb, name_map)
+      meetings_raw$embajador_key <- brokers_norm_name(meetings_raw$embajador)
+    }
+    if (nrow(emb_raw) && "nombre" %in% names(emb_raw)) {
+      raw_nom <- if ("nombre_raw" %in% names(emb_raw)) {
+        dplyr::coalesce(
+          dplyr::na_if(stringr::str_squish(as.character(emb_raw$nombre_raw)), ""),
+          dplyr::na_if(stringr::str_squish(as.character(emb_raw$nombre)), "")
+        )
+      } else {
+        dplyr::na_if(stringr::str_squish(as.character(emb_raw$nombre)), "")
+      }
+      emb_raw$nombre <- origenes_resolve_names(raw_nom, name_map)
+      if ("nombre_key" %in% names(emb_raw)) {
+        emb_raw$nombre_key <- brokers_norm_name(emb_raw$nombre)
+      }
+    }
+  }
+
+  primera_desde <- if (identical(origin_key, "broker")) {
+    origenes_brokers_history_start()
+  } else {
+    NULL
+  }
+  emb <- origenes_enrich_embajadores(
+    emb_raw,
+    meetings_raw,
+    as_of = as_of,
+    primera_cita_desde = primera_desde
+  )
+  if (identical(origin_key, "broker") && nrow(emb)) {
+    # COUNTIFS(K, I>0): rellena I desde Embajadores Sheets si el CRM no la trae.
+    emb <- origenes_brokers_apply_sheets_primera_cita(emb)
+  }
   if (nrow(emb)) {
     if (!"pertenece_equipo" %in% names(emb)) {
       emb$pertenece_equipo <- FALSE
@@ -259,11 +430,19 @@ origenes_resumen_prepare <- function(origin_obj,
 
   meetings <- meetings_raw
   if (nrow(meetings)) {
+    meetings <- origenes_meetings_attach_fecha_creacion(meetings)
     meetings <- meetings |>
       dplyr::mutate(
         fecha_cita = as.Date(.data$fecha),
         realizada = origenes_meeting_is_realizada(.data$status_os),
-        primera_cita = dplyr::coalesce(as.logical(.data$first_meeting), FALSE)
+        primera_cita = dplyr::coalesce(as.logical(.data$first_meeting), FALSE),
+        # Sheets: Gen Cita (Start) + Created.Date en el mismo mes
+        created_in_gen_cita = origenes_meeting_created_in_gen_cita(
+          .data$fecha_cita,
+          .data$fecha_creacion
+        ),
+        # Conversión / Citas nuevas Realizadas
+        cita_realizada_conteo = .data$realizada & .data$created_in_gen_cita
       )
   }
   sales <- sales_raw
@@ -285,18 +464,39 @@ origenes_resumen_prepare <- function(origin_obj,
         "lead_contact_id" %in% names(meetings) &&
         "client_contact_id" %in% names(sales)
     ) {
-      primera <- meetings |>
+      # Gen Cita (Conversión Citas): First.meeting + Realizada del lead.
+      # Brokers: ventana academy 2026-01-01 (hoja Citas del Sheets). Si el lead
+      # no tiene esa cita en ventana → Gen vacío (no cuenta en columnas Gen Cita).
+      m_gen <- meetings |>
         dplyr::filter(
           dplyr::coalesce(.data$primera_cita, FALSE),
           dplyr::coalesce(.data$realizada, FALSE),
           !is.na(.data$fecha_cita),
           !is.na(.data$lead_contact_id),
           nzchar(.data$lead_contact_id)
-        ) |>
+        )
+      if (!is.null(primera_desde)) {
+        m_gen <- m_gen |>
+          dplyr::filter(.data$fecha_cita >= as.Date(primera_desde))
+      }
+      primera <- m_gen |>
         dplyr::group_by(.data$lead_contact_id) |>
         dplyr::summarise(gen_cita_fecha = min(.data$fecha_cita), .groups = "drop")
       sales <- sales |>
         dplyr::left_join(primera, by = c("client_contact_id" = "lead_contact_id"))
+      # Gen Cita no puede ser posterior a la firma (cita de otro deal / dato raro).
+      if ("fecha_firma" %in% names(sales) && "gen_cita_fecha" %in% names(sales)) {
+        sales <- sales |>
+          dplyr::mutate(
+            gen_cita_fecha = dplyr::if_else(
+              !is.na(.data$gen_cita_fecha) &
+                !is.na(.data$fecha_firma) &
+                .data$gen_cita_fecha > .data$fecha_firma,
+              as.Date(NA),
+              .data$gen_cita_fecha
+            )
+          )
+      }
     }
     if (!"gen_cita_fecha" %in% names(sales)) {
       sales$gen_cita_fecha <- as.Date(NA)
@@ -566,15 +766,18 @@ origenes_resumen_en_capacitacion_rows <- function(emb, start, end) {
 #'    → M = fecha de última cita agendada/realizada (cualquier status).
 #'
 #' 5. Primera cita
-#'    COUNTIFS(Gen Registro, I > 0) sobre la base
-#'    → I = fecha de primera cita realizada (realizada + First.meeting).
+#'    =COUNTIFS(Embajadores!K:K, periodo, Embajadores!I:I, ">0")
+#'    → filas del Sheets (duplicados cuentan); fallback cohort$tiene_primera_cita.
+#'    → Gen Registro = periodo y Fecha primera cita realizada no vacía.
+#'      (toda la cohorte; no filtra por equipo).
 #'
 #' 6. Conversión primera cita / registrados
-#'    Primera cita / Registrados sin equipos.
+#'    Primera cita / Registrados totales.
 #'
 #' 7. Activos (últimos N días)
 #'    COUNTIFS(Gen Registro, L < 31) sobre la base
-#'    → L = as_of − fecha última cita realizada; as_of = última actividad del cache.
+#'    → L = as_of − fecha última cita agendada/realizada (col M);
+#'      as_of = última actividad del cache.
 #'
 #' 8. Conversión activo / primera cita
 #'    Activos / Primera cita.
@@ -601,11 +804,18 @@ origenes_resumen_tabla_embajadores <- function(prep, start, end, granularity = "
       registrados = nrow(cohort),
       sin_equipos = nrow(base),
       en_capacitacion = as.integer(en_cap),
-      # (4) M > 0
+      # (4) M > 0 sobre sin equipos
       cita_agendada = sum(base$tiene_cita_agendada, na.rm = TRUE),
-      # (5) I > 0
-      primera_cita = sum(base$tiene_primera_cita, na.rm = TRUE),
-      # (7) L < 31
+      # (5) COUNTIFS(Embajadores!K, periodo, Embajadores!I, ">0") — filas Sheets
+      primera_cita = {
+        n_sheets <- origenes_brokers_sheets_primera_cita_n(format(ps, "%Y-%m"))
+        if (!is.na(n_sheets)) {
+          as.integer(n_sheets)
+        } else {
+          as.integer(sum(cohort$tiene_primera_cita, na.rm = TRUE))
+        }
+      },
+      # (7) L < 31 sobre sin equipos
       activos = sum(base$activo_30d, na.rm = TRUE)
     )
   })
@@ -636,8 +846,8 @@ origenes_resumen_tabla_embajadores <- function(prep, start, end, granularity = "
       as.character(total_cap),
       as.character(total_ag),
       as.character(total_1ra),
-      # (6) primera / sin equipos
-      brokers_fmt_pct(total_1ra, total_sin),
+      # (6) primera / registrados totales
+      brokers_fmt_pct(total_1ra, total_reg),
       as.character(total_activos),
       # (8) activos / primera
       brokers_fmt_pct(total_activos, total_1ra)
@@ -653,7 +863,7 @@ origenes_resumen_tabla_embajadores <- function(prep, start, end, granularity = "
               as.character(cols[[i]]$en_capacitacion),
               as.character(cols[[i]]$cita_agendada),
               as.character(cols[[i]]$primera_cita),
-              brokers_fmt_pct(cols[[i]]$primera_cita, cols[[i]]$sin_equipos),
+              brokers_fmt_pct(cols[[i]]$primera_cita, cols[[i]]$registrados),
               as.character(cols[[i]]$activos),
               brokers_fmt_pct(cols[[i]]$activos, cols[[i]]$primera_cita)
             )
@@ -665,14 +875,47 @@ origenes_resumen_tabla_embajadores <- function(prep, start, end, granularity = "
     )
 }
 
+#' Tabla Actividad — columnas = mes de actividad (no de registro).
+#'
+#' 1. Embajadores que trajeron su primer lead
+#'    =COUNTIF(Embajadores!N:N, periodo)
+#'    N = Gen primera cita realizada
+#'
+#' 2. Citas Agendadas
+#'    First.meeting = TRUE con Start.date en el mes; un lead cuenta una sola vez.
+#'
+#' 3. Citas nuevas Realizadas
+#'    Realizada ∧ Created.Date en el mismo mes que Gen Cita (Start.date).
+#'
+#' 4. Total de citas realizadas
+#'    Status = Realizada con Start.date en el mes (sin filtro de creación).
+#'
+#' 5. Unidades Vendidas
+#'    ventas Firmado con fecha de firma en el mes; suma de unidades.
+#'
+#' 6. Facturación
+#'    misma base que (5); suma de precio.
 origenes_resumen_tabla_resultados <- function(prep, start, end, granularity = "mensual") {
   granularity <- match.arg(granularity, origenes_granularity_values())
   periods <- origenes_period_starts(start, end, granularity)
   meetings <- prep$meetings
   sales <- prep$sales
+  emb <- prep$embajadores %||% tibble::tibble()
+  # Sheets col N
+  if (nrow(emb) && !"gen_primera_cita_realizada" %in% names(emb)) {
+    emb$gen_primera_cita_realizada <- origenes_ym_label(emb$fecha_primera_cita)
+  }
+  gen_n <- if (nrow(emb) && "gen_primera_cita_realizada" %in% names(emb)) {
+    stringr::str_squish(as.character(emb$gen_primera_cita_realizada))
+  } else {
+    character()
+  }
 
-  cols <- lapply(periods, function(ps) {
+  cols <- lapply(seq_along(periods), function(i) {
+    ps <- periods[[i]]
     pe <- origenes_period_end(ps, granularity)
+    lab <- origenes_period_label(ps, granularity)
+    # Corte por mes de actividad: Start.date / fecha_firma
     m <- meetings |>
       dplyr::filter(!is.na(.data$fecha_cita), .data$fecha_cita >= ps, .data$fecha_cita <= pe)
     v <- sales |>
@@ -682,18 +925,18 @@ origenes_resumen_tabla_resultados <- function(prep, start, end, granularity = "m
         .data$fecha_firma >= ps,
         .data$fecha_firma <= pe
       )
-    primeras <- m |>
-      dplyr::filter(.data$primera_cita & .data$realizada)
-    emb_key <- if ("embajador_key" %in% names(primeras)) {
-      primeras$embajador_key
+    # (3) Realizada ∧ Created en el mismo mes que Gen Cita
+    nuevas <- if ("cita_realizada_conteo" %in% names(m)) {
+      m |> dplyr::filter(.data$cita_realizada_conteo)
     } else {
-      primeras$embajador %||% character()
+      m |> dplyr::filter(origenes_meeting_is_cita_realizada_conteo(m))
     }
-    emb_key <- emb_key[!is.na(emb_key) & nzchar(emb_key)]
     list(
-      embajadores_primera = length(unique(emb_key)),
-      citas_agendadas = nrow(m),
-      citas_nuevas = nrow(primeras),
+      # (1) COUNTIF(Embajadores!N:N, lab)
+      primera_cita = sum(gen_n == lab, na.rm = TRUE),
+      # (2) primeras citas, distinct por lead
+      citas_agendadas = origenes_meetings_count_citas_agendadas(m),
+      citas_nuevas = nrow(nuevas),
       total_realizadas = sum(m$realizada, na.rm = TRUE),
       unidades = sum(v$unidades, na.rm = TRUE),
       facturacion = sum(v$precio, na.rm = TRUE)
@@ -702,7 +945,7 @@ origenes_resumen_tabla_resultados <- function(prep, start, end, granularity = "m
 
   labels <- vapply(periods, origenes_period_label, character(1), granularity = granularity)
   totals <- list(
-    embajadores_primera = sum(vapply(cols, `[[`, numeric(1), "embajadores_primera")),
+    primera_cita = sum(vapply(cols, `[[`, numeric(1), "primera_cita")),
     citas_agendadas = sum(vapply(cols, `[[`, numeric(1), "citas_agendadas")),
     citas_nuevas = sum(vapply(cols, `[[`, numeric(1), "citas_nuevas")),
     total_realizadas = sum(vapply(cols, `[[`, numeric(1), "total_realizadas")),
@@ -712,7 +955,7 @@ origenes_resumen_tabla_resultados <- function(prep, start, end, granularity = "m
 
   tibble::tibble(
     metrica = c(
-      "Embajadores con Primera cita",
+      "Embajadores que trajeron su primer lead",
       "Citas Agendadas",
       "Citas nuevas Realizadas",
       "Total de citas realizadas",
@@ -720,7 +963,7 @@ origenes_resumen_tabla_resultados <- function(prep, start, end, granularity = "m
       "Facturación"
     ),
     Total = c(
-      as.character(totals$embajadores_primera),
+      as.character(totals$primera_cita),
       as.character(totals$citas_agendadas),
       as.character(totals$citas_nuevas),
       as.character(totals$total_realizadas),
@@ -733,7 +976,7 @@ origenes_resumen_tabla_resultados <- function(prep, start, end, granularity = "m
         stats::setNames(
           lapply(seq_along(cols), function(i) {
             c(
-              as.character(cols[[i]]$embajadores_primera),
+              as.character(cols[[i]]$primera_cita),
               as.character(cols[[i]]$citas_agendadas),
               as.character(cols[[i]]$citas_nuevas),
               as.character(cols[[i]]$total_realizadas),
@@ -766,20 +1009,15 @@ origenes_resumen_tabla_citas_gen <- function(prep, start, end, granularity = "me
     sales$gen_cita_fecha <- as.Date(NA)
   }
 
+  # Cita Realizada = Realizada ∧ Created.Date en el mismo mes que Gen Cita (Start).
   n_citas <- function(m) {
     if (!nrow(m)) {
       return(0L)
     }
-    m <- m[dplyr::coalesce(m$primera_cita, FALSE) & dplyr::coalesce(m$realizada, FALSE), , drop = FALSE]
-    if (!nrow(m)) {
-      return(0L)
+    if ("cita_realizada_conteo" %in% names(m)) {
+      return(sum(dplyr::coalesce(m$cita_realizada_conteo, FALSE)))
     }
-    if (!"lead_contact_id" %in% names(m)) {
-      return(nrow(m))
-    }
-    ids <- m$lead_contact_id
-    has <- !is.na(ids) & nzchar(ids)
-    length(unique(ids[has])) + sum(!has)
+    sum(origenes_meeting_is_cita_realizada_conteo(m))
   }
 
   cols <- lapply(periods, function(ps) {
@@ -885,7 +1123,11 @@ origenes_resumen_tabla_conversion <- function(prep,
     pe <- origenes_period_end(ps, granularity)
     m <- meetings |>
       dplyr::filter(!is.na(.data$fecha_cita), .data$fecha_cita >= ps, .data$fecha_cita <= pe)
-    realizadas <- sum(m$primera_cita & m$realizada, na.rm = TRUE)
+    realizadas <- if ("cita_realizada_conteo" %in% names(m)) {
+      sum(m$cita_realizada_conteo, na.rm = TRUE)
+    } else {
+      sum(origenes_meeting_is_cita_realizada_conteo(m))
+    }
     v <- firmadas |>
       dplyr::filter(!is.na(.data$fecha_firma), .data$fecha_firma >= ps, .data$fecha_firma <= pe)
     p <- procesos |>
@@ -998,12 +1240,17 @@ origenes_resumen_kpis <- function(prep, start = NULL, end = NULL) {
     emb_ytd
   }
   sin_equipos <- nrow(base_cohort)
-  primera_cita_emb <- sum(base_cohort$tiene_primera_cita, na.rm = TRUE)
+  # Primera cita KPI: COUNTIFS(K, I>0) sobre cohorte (no solo sin equipo).
+  primera_cita_emb <- sum(emb_cohort$tiene_primera_cita, na.rm = TRUE)
   activos <- sum(base_all$activo_30d, na.rm = TRUE)
   retencion_n <- sum(base_cohort$tiene_mas_de_una_cita, na.rm = TRUE)
   retencion_ytd_n <- sum(base_ytd$tiene_mas_de_una_cita, na.rm = TRUE)
-  citas_nuevas <- sum(meetings$primera_cita & meetings$realizada, na.rm = TRUE)
-  citas_agendadas <- nrow(meetings)
+  citas_nuevas <- if ("cita_realizada_conteo" %in% names(meetings)) {
+    sum(meetings$cita_realizada_conteo, na.rm = TRUE)
+  } else {
+    sum(origenes_meeting_is_cita_realizada_conteo(meetings))
+  }
+  citas_agendadas <- origenes_meetings_count_citas_agendadas(meetings)
   citas_realizadas <- sum(meetings$realizada, na.rm = TRUE)
   citas_retencion <- sum(!dplyr::coalesce(meetings$primera_cita, FALSE), na.rm = TRUE)
   unidades <- sum(firmadas$unidades, na.rm = TRUE)
@@ -1013,7 +1260,7 @@ origenes_resumen_kpis <- function(prep, start = NULL, end = NULL) {
   list(
     registrados = registrados,
     sin_equipos = sin_equipos,
-    conv_primera_reg = if (sin_equipos > 0) primera_cita_emb / sin_equipos else NA_real_,
+    conv_primera_reg = if (registrados > 0) primera_cita_emb / registrados else NA_real_,
     primera_cita_emb = primera_cita_emb,
     activos = activos,
     conv_activo_primera = if (primera_cita_emb > 0) activos / primera_cita_emb else NA_real_,
@@ -1280,7 +1527,8 @@ origenes_resumen_embajadores_cell_rows <- function(bundle, metric, period_col) {
   } else if (grepl("^Cita agendada$", metric, ignore.case = TRUE)) {
     base |> dplyr::filter(.data$tiene_cita_agendada)
   } else if (grepl("^Primera cita$", metric, ignore.case = TRUE)) {
-    base |> dplyr::filter(.data$tiene_primera_cita)
+    # COUNTIFS(K, I>0): cohorte completa, no solo sin equipos
+    cohort |> dplyr::filter(.data$tiene_primera_cita)
   } else if (grepl("^Activos", metric, ignore.case = TRUE)) {
     base |> dplyr::filter(.data$activo_30d)
   } else if (grepl("Conversi[oó]n primera", metric, ignore.case = TRUE)) {
@@ -1337,18 +1585,61 @@ origenes_resumen_actividad_cell_rows <- function(bundle, metric, period_col) {
       .data$fecha_firma <= bounds$end
     )
 
-  if (grepl("Embajadores con Primera", metric, ignore.case = TRUE)) {
-    m <- m |>
-      dplyr::filter(.data$primera_cita & .data$realizada)
-    key_col <- if ("embajador_key" %in% names(m)) "embajador_key" else "embajador"
-    if (nrow(m) && key_col %in% names(m)) {
-      m <- m[order(m$fecha_cita), , drop = FALSE]
-      m <- m[!duplicated(m[[key_col]]), , drop = FALSE]
+  if (grepl("^Primera cita$|Embajadores que trajeron|Embajadores con Primera", metric, ignore.case = TRUE)) {
+    emb <- bundle$prep$embajadores %||% tibble::tibble()
+    if (!nrow(emb)) {
+      return(tibble::tibble())
     }
+    # COUNTIF(Embajadores!N:N, periodo) — no usar `==` con NA (incluye filas fantasma).
+    if (!"gen_primera_cita_realizada" %in% names(emb)) {
+      emb$gen_primera_cita_realizada <- origenes_ym_label(emb$fecha_primera_cita)
+    }
+    lab <- bounds$label %||% ""
+    gen_n <- stringr::str_squish(as.character(emb$gen_primera_cita_realizada))
+    gen_n[is.na(gen_n) | !nzchar(gen_n)] <- ""
+    if (!identical(lab, "Total") && nzchar(lab)) {
+      emb <- emb[gen_n == lab, , drop = FALSE]
+    } else {
+      emb <- emb[
+        !is.na(emb$fecha_primera_cita) &
+          emb$fecha_primera_cita >= bounds$start &
+          emb$fecha_primera_cita <= bounds$end,
+        ,
+        drop = FALSE
+      ]
+    }
+    if (!nrow(emb)) {
+      return(tibble::tibble())
+    }
+    return(
+      emb |>
+        dplyr::transmute(
+          Embajador = dplyr::coalesce(
+            dplyr::na_if(stringr::str_squish(as.character(.data$nombre)), ""),
+            as.character(.data$nombre_raw %||% "")
+          ),
+          `Gen 1ª cita` = .data$gen_primera_cita_realizada,
+          `1ª cita` = .data$fecha_primera_cita,
+          `Última cita` = .data$fecha_ultima_cita,
+          `N citas` = .data$n_citas
+        ) |>
+        dplyr::arrange(.data$Embajador)
+    )
   } else if (grepl("Agendadas", metric, ignore.case = TRUE)) {
-    m <- m
+    # Primeras citas; un lead una vez (primera por fecha si hay varias).
+    m <- m |> dplyr::filter(dplyr::coalesce(.data$primera_cita, FALSE))
+    if (nrow(m) && "lead_contact_id" %in% names(m)) {
+      m <- m[order(m$fecha_cita), , drop = FALSE]
+      ids <- as.character(m$lead_contact_id)
+      keep <- is.na(ids) | !nzchar(ids) | !duplicated(ids)
+      m <- m[keep, , drop = FALSE]
+    }
   } else if (grepl("nuevas realizadas", metric, ignore.case = TRUE)) {
-    m <- m |> dplyr::filter(.data$primera_cita & .data$realizada)
+    m <- if ("cita_realizada_conteo" %in% names(m)) {
+      m |> dplyr::filter(.data$cita_realizada_conteo)
+    } else {
+      m |> dplyr::filter(origenes_meeting_is_cita_realizada_conteo(m))
+    }
   } else if (grepl("realizadas", metric, ignore.case = TRUE)) {
     m <- m |> dplyr::filter(.data$realizada)
   } else if (grepl("Unidades|Facturaci", metric, ignore.case = TRUE)) {
@@ -1359,7 +1650,7 @@ origenes_resumen_actividad_cell_rows <- function(bundle, metric, period_col) {
           `Fecha firma` = .data$fecha_firma,
           Embajador = .data$embajador %||% .data$vendedor %||% NA_character_,
           Unidades = .data$unidades,
-          Precio = .data$precio
+          Precio = brokers_fmt_money(.data$precio)
         )
     )
   }
@@ -1394,10 +1685,13 @@ origenes_resumen_citas_gen_cell_rows <- function(bundle, metric, period_col) {
       dplyr::filter(
         !is.na(.data$fecha_cita),
         .data$fecha_cita >= bounds$start,
-        .data$fecha_cita <= bounds$end,
-        dplyr::coalesce(.data$primera_cita, FALSE),
-        dplyr::coalesce(.data$realizada, FALSE)
+        .data$fecha_cita <= bounds$end
       )
+    m <- if ("cita_realizada_conteo" %in% names(m)) {
+      m |> dplyr::filter(.data$cita_realizada_conteo)
+    } else {
+      m |> dplyr::filter(origenes_meeting_is_cita_realizada_conteo(m))
+    }
   }
   v <- sales |>
     dplyr::filter(
@@ -1410,19 +1704,16 @@ origenes_resumen_citas_gen_cell_rows <- function(bundle, metric, period_col) {
     if (!nrow(m)) {
       return(tibble::tibble())
     }
-    if (!"lead_contact_id" %in% names(m)) {
-      m$lead_contact_id <- NA_character_
-    }
-    m <- m[order(m$fecha_cita), , drop = FALSE]
-    m <- m[!duplicated(m$lead_contact_id), , drop = FALSE]
     if (!"vendedor" %in% names(m)) m$vendedor <- NA_character_
     if (!"lead_nombre" %in% names(m)) m$lead_nombre <- NA_character_
     if (!"embajador" %in% names(m)) m$embajador <- NA_character_
+    if (!"fecha_creacion" %in% names(m)) m$fecha_creacion <- as.Date(NA)
     return(
       m |>
         dplyr::transmute(
           Prospecto = .data$lead_nombre %||% NA_character_,
           `Gen cita` = .data$fecha_cita,
+          `Fecha creación` = .data$fecha_creacion,
           Embajador = .data$embajador %||% NA_character_,
           Vendedor = .data$vendedor %||% NA_character_
         ) |>
@@ -1453,7 +1744,7 @@ origenes_resumen_citas_gen_cell_rows <- function(bundle, metric, period_col) {
       `Ciclo (d)` = as.integer(.data$fecha_firma - .data$gen_cita_fecha),
       Vendedor = .data$vendedor %||% NA_character_,
       Unidades = .data$unidades,
-      Precio = .data$precio
+      Precio = brokers_fmt_money(.data$precio)
     ) |>
     dplyr::arrange(.data$`Gen cita`, .data$`Fecha firma`)
 }

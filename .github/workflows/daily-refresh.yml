@@ -1,0 +1,85 @@
+name: Daily refresh
+
+on:
+  schedule:
+    # 06:00 America/Mexico_City (UTC-6 standard)
+    - cron: "0 12 * * *"
+  workflow_dispatch:
+
+concurrency:
+  group: daily-refresh
+  cancel-in-progress: false
+
+jobs:
+  refresh-and-deploy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+
+    env:
+      ORIGENES_APP_ROOT: ${{ github.workspace }}
+      BUBBLE_BASE: ${{ secrets.BUBBLE_BASE }}
+      BUBBLE_TOKEN: ${{ secrets.BUBBLE_TOKEN }}
+      AMBASSADORS_BASE: ${{ secrets.AMBASSADORS_BASE }}
+      AMBASSADORS_TOKEN: ${{ secrets.AMBASSADORS_TOKEN }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Resolve shinyapps account
+        env:
+          ACCOUNT_SECRET: ${{ secrets.ORIGENES_SHINYAPPS_ACCOUNT }}
+        run: |
+          if [ -n "$ACCOUNT_SECRET" ]; then
+            echo "ORIGENES_SHINYAPPS_ACCOUNT=$ACCOUNT_SECRET" >> "$GITHUB_ENV"
+          else
+            echo "ORIGENES_SHINYAPPS_ACCOUNT=division2cbr" >> "$GITHUB_ENV"
+          fi
+
+      - name: Setup R
+        uses: r-lib/actions/setup-r@v2
+        with:
+          r-version: "4.4"
+          use-public-rspm: true
+
+      - name: Install R packages
+        uses: r-lib/actions/setup-r-dependencies@v2
+        with:
+          extra-packages: any::rsconnect
+          needs: deploy
+
+      - name: Check API secrets
+        run: |
+          missing=
+          for key in BUBBLE_BASE BUBBLE_TOKEN AMBASSADORS_BASE AMBASSADORS_TOKEN; do
+            if [ -z "${!key}" ]; then
+              missing="$missing $key"
+            fi
+          done
+          if [ -n "$missing" ]; then
+            echo "Missing required secrets:$missing" >&2
+            exit 1
+          fi
+
+      - name: Build canonical data
+        run: Rscript scripts/build_origenes_canonical.R
+
+      - name: Configure shinyapps.io
+        env:
+          SHINYAPPS_TOKEN: ${{ secrets.SHINYAPPS_TOKEN }}
+          SHINYAPPS_SECRET: ${{ secrets.SHINYAPPS_SECRET }}
+        run: |
+          if [ -z "$SHINYAPPS_TOKEN" ] || [ -z "$SHINYAPPS_SECRET" ]; then
+            echo "Missing SHINYAPPS_TOKEN or SHINYAPPS_SECRET" >&2
+            exit 1
+          fi
+          Rscript -e '
+            account <- Sys.getenv("ORIGENES_SHINYAPPS_ACCOUNT", unset = "division2cbr")
+            token <- Sys.getenv("SHINYAPPS_TOKEN")
+            secret <- Sys.getenv("SHINYAPPS_SECRET")
+            rsconnect::setAccountInfo(name = account, token = token, secret = secret)
+            message("rsconnect account configured: ", account)
+          '
+
+      - name: Deploy to shinyapps.io
+        run: Rscript scripts/deploy_shinyapps.R origenes
