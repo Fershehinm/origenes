@@ -2,8 +2,9 @@ name: Daily refresh
 
 on:
   schedule:
-    # 06:00 America/Mexico_City (UTC-6 standard)
-    - cron: "0 12 * * *"
+    # America/Mexico_City = UTC-6 (sin DST)
+    - cron: "0 13 * * *" # 07:00 CDMX
+    - cron: "0 22 * * *" # 16:00 CDMX
   workflow_dispatch:
 
 concurrency:

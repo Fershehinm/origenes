@@ -79,8 +79,9 @@ Rscript scripts/deploy_shinyapps.R otro-nombre otra-cuenta
 ## Refresh diario (GitHub Actions)
 
 El workflow [`.github/workflows/daily-refresh.yml`](.github/workflows/daily-refresh.yml)
-corre cada día a las 06:00 America/Mexico_City (`cron: 0 12 * * *`) y también se
-puede disparar a mano (Actions → Daily refresh → Run workflow):
+corre dos veces al día a las 07:00 y 16:00 America/Mexico_City
+(`cron: 0 13 * * *` y `0 22 * * *`, UTC-6) y también se puede disparar a mano
+(Actions → Daily refresh → Run workflow):
 
 1. Reconstruye `data/canonical/origenes_joined.rds` desde Ambassadors + Bubble.
 2. Redespliega la app a shinyapps.io con ese canónico.
