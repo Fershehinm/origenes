@@ -65,7 +65,8 @@ origenes_meetings_count_citas_agendadas <- function(meetings) {
 }
 
 #' Cita Realizada (Conversión / Citas nuevas Realizadas):
-#' Realizada ∧ Created.Date en el mismo mes que Gen Cita (Start.date).
+#' Primera=Sí ∧ Realizada (Start.date / Gen Cita en el mes de la columna).
+#' No exige Created.Date en el mismo mes (eso dejaba el total ~107 vs Sheets ~124).
 origenes_meeting_is_cita_realizada_conteo <- function(meetings) {
   if (!nrow(meetings)) {
     return(logical())
@@ -75,13 +76,14 @@ origenes_meeting_is_cita_realizada_conteo <- function(meetings) {
   } else {
     origenes_meeting_is_realizada(meetings$status_os)
   }
-  fecha_cita <- as.Date(meetings$fecha_cita %||% meetings$fecha)
-  fecha_creacion <- if ("fecha_creacion" %in% names(meetings)) {
-    as.Date(meetings$fecha_creacion)
+  primera <- if ("primera_cita" %in% names(meetings)) {
+    dplyr::coalesce(as.logical(meetings$primera_cita), FALSE)
+  } else if ("first_meeting" %in% names(meetings)) {
+    dplyr::coalesce(as.logical(meetings$first_meeting), FALSE)
   } else {
-    as.Date(rep(NA, nrow(meetings)))
+    rep(FALSE, nrow(meetings))
   }
-  realizada & origenes_meeting_created_in_gen_cita(fecha_cita, fecha_creacion)
+  primera & realizada
 }
 
 #' Adjunta Created.Date del CRM (Bubble) a meetings del joined.
@@ -441,8 +443,8 @@ origenes_resumen_prepare <- function(origin_obj,
           .data$fecha_cita,
           .data$fecha_creacion
         ),
-        # Conversión / Citas nuevas Realizadas
-        cita_realizada_conteo = .data$realizada & .data$created_in_gen_cita
+        # Conversión / Citas nuevas Realizadas: Primera=Sí ∧ Realizada
+        cita_realizada_conteo = .data$primera_cita & .data$realizada
       )
   }
   sales <- sales_raw
@@ -747,45 +749,66 @@ origenes_resumen_en_capacitacion_rows <- function(emb, start, end) {
 #' Tabla Embajadores (Analytics) — reglas por fila
 #'
 #' Cohorte del periodo = embajadores con Gen Registro / fecha_registro en la columna.
-#' Base sin equipo = cohorte donde Pertenece a un equipo ≠ "sí" (cuenta "no" y vacío).
+#' Base sin equipo = vacío/no + Pertenece=sí con Generación (capacitaron).
+#' Solo se excluye a quien pertenece a un equipo y aún no tiene Generación.
 #'
 #' 1. Registrados totales
 #'    COUNTIF(Gen Registro = periodo), una vez por persona y mes.
 #'    Si el Sheets trae ese mes, se usa el suyo. Si no, la fecha del API.
 #'
 #' 2. Registrados sin equipos
-#'    cohorte con Pertenece ≠ "sí"
-#'    → nrow(base). Las filas 4–8 se calculan sobre esta base.
+#'    cohorte: Pertenece ≠ "sí", o Pertenece=sí con Generación no vacía
+#'    → nrow(base). Las filas 3–5 y 7–11 se calculan sobre esta base.
 #'
-#' 3. En capacitación
+#' 3–5. Arturo Cole / Eduardo Salazar / Marketing
+#'    COUNTIFS(Gen Registro, Canal = nombre) sobre la base sin equipos.
+#'
+#' 6. En capacitación
 #'    COUNTIFS(Embajadores!K, periodo, Embajadores!H, "<>")
 #'    → Gen Registro del mes y Generación no vacía, con o sin equipo.
 #'
-#' 4. Cita agendada
+#' 7. Cita agendada
 #'    COUNTIFS(Gen Registro, M > 0) sobre la base
 #'    → M = fecha de última cita agendada/realizada (cualquier status).
 #'
-#' 5. Primera cita
+#' 8. Primera cita
 #'    =COUNTIFS(Embajadores!K:K, periodo, Embajadores!I:I, ">0")
 #'    → filas del Sheets (duplicados cuentan); fallback cohort$tiene_primera_cita.
 #'    → Gen Registro = periodo y Fecha primera cita realizada no vacía.
 #'      (toda la cohorte; no filtra por equipo).
 #'
-#' 6. Conversión primera cita / registrados
+#' 9. Conversión primera cita / registrados
 #'    Primera cita / Registrados totales.
 #'
-#' 7. Activos (últimos N días)
+#' 10. Activos (últimos N días)
 #'    COUNTIFS(Gen Registro, L < 31) sobre la base
 #'    → L = as_of − fecha última cita agendada/realizada (col M);
 #'      as_of = última actividad del cache.
 #'
-#' 8. Conversión activo / primera cita
+#' 11. Conversión activo / primera cita
 #'    Activos / Primera cita.
+origenes_resumen_canales_conversion <- function() {
+  c("Arturo Cole", "Eduardo Salazar", "Marketing")
+}
+
+origenes_resumen_count_canal <- function(df, canal_name) {
+  if (!nrow(df) || !"canal" %in% names(df)) {
+    return(0L)
+  }
+  labs <- origenes_brokers_canal_label(df$canal)
+  target <- origenes_brokers_canal_label(canal_name)
+  if (is.na(target) || !nzchar(target)) {
+    return(0L)
+  }
+  as.integer(sum(!is.na(labs) & labs == target, na.rm = TRUE))
+}
+
 origenes_resumen_tabla_embajadores <- function(prep, start, end, granularity = "mensual") {
   granularity <- match.arg(granularity, origenes_granularity_values())
   periods <- origenes_period_starts(start, end, granularity)
   emb <- prep$embajadores
   active_days <- brokers_active_window_days()
+  canales <- origenes_resumen_canales_conversion()
 
   cols <- lapply(periods, function(ps) {
     pe <- origenes_period_end(ps, granularity)
@@ -796,33 +819,50 @@ origenes_resumen_tabla_embajadores <- function(prep, start, end, granularity = "
       cohort |> dplyr::filter(.data$es_registrado_sin_equipo)
     } else {
       cohort |>
-        dplyr::filter(origenes_brokers_es_registrado_sin_equipo(.data$pertenece_equipo))
+        dplyr::filter(origenes_brokers_es_registrado_sin_equipo(
+          .data$pertenece_equipo,
+          if ("generacion" %in% names(cohort)) .data$generacion else NULL
+        ))
     }
-    # (3) Gen Registro = periodo y Generación <> "". No filtra equipo.
+    # (6) Gen Registro = periodo y Generación <> "". No filtra equipo.
     en_cap <- origenes_resumen_en_capacitacion_n(emb, ps, pe)
-    list(
-      registrados = nrow(cohort),
-      sin_equipos = nrow(base),
-      en_capacitacion = as.integer(en_cap),
-      # (4) M > 0 sobre sin equipos
-      cita_agendada = sum(base$tiene_cita_agendada, na.rm = TRUE),
-      # (5) COUNTIFS(Embajadores!K, periodo, Embajadores!I, ">0") — filas Sheets
-      primera_cita = {
-        n_sheets <- origenes_brokers_sheets_primera_cita_n(format(ps, "%Y-%m"))
-        if (!is.na(n_sheets)) {
-          as.integer(n_sheets)
-        } else {
-          as.integer(sum(cohort$tiene_primera_cita, na.rm = TRUE))
-        }
-      },
-      # (7) L < 31 sobre sin equipos
-      activos = sum(base$activo_30d, na.rm = TRUE)
+    canal_ns <- stats::setNames(
+      lapply(canales, function(cn) origenes_resumen_count_canal(base, cn)),
+      paste0("canal_", seq_along(canales))
+    )
+    c(
+      list(
+        registrados = nrow(cohort),
+        sin_equipos = nrow(base)
+      ),
+      canal_ns,
+      list(
+        en_capacitacion = as.integer(en_cap),
+        # (7) M > 0 sobre sin equipos
+        cita_agendada = sum(base$tiene_cita_agendada, na.rm = TRUE),
+        # (8) COUNTIFS(Embajadores!K, periodo, Embajadores!I, ">0") — filas Sheets
+        primera_cita = {
+          n_sheets <- origenes_brokers_sheets_primera_cita_n(format(ps, "%Y-%m"))
+          if (!is.na(n_sheets)) {
+            as.integer(n_sheets)
+          } else {
+            as.integer(sum(cohort$tiene_primera_cita, na.rm = TRUE))
+          }
+        },
+        # (10) L < 31 sobre sin equipos
+        activos = sum(base$activo_30d, na.rm = TRUE)
+      )
     )
   })
 
   # Totales = suma de columnas de periodo (igual que Sheets).
   total_reg <- sum(vapply(cols, `[[`, integer(1), "registrados"))
   total_sin <- sum(vapply(cols, `[[`, integer(1), "sin_equipos"))
+  total_canales <- vapply(
+    seq_along(canales),
+    function(j) sum(vapply(cols, function(c) as.integer(c[[paste0("canal_", j)]]), integer(1))),
+    integer(1)
+  )
   total_cap <- sum(vapply(cols, `[[`, integer(1), "en_capacitacion"))
   total_ag <- sum(vapply(cols, `[[`, integer(1), "cita_agendada"))
   total_1ra <- sum(vapply(cols, `[[`, integer(1), "primera_cita"))
@@ -833,6 +873,7 @@ origenes_resumen_tabla_embajadores <- function(prep, start, end, granularity = "
     metrica = c(
       "Registrados totales",
       "Registrados sin equipos",
+      canales,
       "En capacitación",
       "Cita agendada",
       "Primera cita",
@@ -843,13 +884,14 @@ origenes_resumen_tabla_embajadores <- function(prep, start, end, granularity = "
     Total = c(
       as.character(total_reg),
       as.character(total_sin),
+      as.character(total_canales),
       as.character(total_cap),
       as.character(total_ag),
       as.character(total_1ra),
-      # (6) primera / registrados totales
+      # (9) primera / registrados totales
       brokers_fmt_pct(total_1ra, total_reg),
       as.character(total_activos),
-      # (8) activos / primera
+      # (11) activos / primera
       brokers_fmt_pct(total_activos, total_1ra)
     )
   ) |>
@@ -860,6 +902,11 @@ origenes_resumen_tabla_embajadores <- function(prep, start, end, granularity = "
             c(
               as.character(cols[[i]]$registrados),
               as.character(cols[[i]]$sin_equipos),
+              vapply(
+                seq_along(canales),
+                function(j) as.character(cols[[i]][[paste0("canal_", j)]]),
+                character(1)
+              ),
               as.character(cols[[i]]$en_capacitacion),
               as.character(cols[[i]]$cita_agendada),
               as.character(cols[[i]]$primera_cita),
@@ -885,7 +932,7 @@ origenes_resumen_tabla_embajadores <- function(prep, start, end, granularity = "
 #'    First.meeting = TRUE con Start.date en el mes; un lead cuenta una sola vez.
 #'
 #' 3. Citas nuevas Realizadas
-#'    Realizada ∧ Created.Date en el mismo mes que Gen Cita (Start.date).
+#'    Primera=Sí ∧ Realizada (Start.date en el mes).
 #'
 #' 4. Total de citas realizadas
 #'    Status = Realizada con Start.date en el mes (sin filtro de creación).
@@ -1221,21 +1268,30 @@ origenes_resumen_kpis <- function(prep, start = NULL, end = NULL) {
   base_cohort <- if ("es_registrado_sin_equipo" %in% names(emb_cohort)) {
     emb_cohort |> dplyr::filter(.data$es_registrado_sin_equipo)
   } else if ("pertenece_equipo" %in% names(emb_cohort)) {
-    emb_cohort |> dplyr::filter(origenes_brokers_es_registrado_sin_equipo(.data$pertenece_equipo))
+    emb_cohort |> dplyr::filter(origenes_brokers_es_registrado_sin_equipo(
+      .data$pertenece_equipo,
+      if ("generacion" %in% names(emb_cohort)) .data$generacion else NULL
+    ))
   } else {
     emb_cohort
   }
   base_all <- if ("es_registrado_sin_equipo" %in% names(emb)) {
     emb |> dplyr::filter(.data$es_registrado_sin_equipo)
   } else if ("pertenece_equipo" %in% names(emb)) {
-    emb |> dplyr::filter(origenes_brokers_es_registrado_sin_equipo(.data$pertenece_equipo))
+    emb |> dplyr::filter(origenes_brokers_es_registrado_sin_equipo(
+      .data$pertenece_equipo,
+      if ("generacion" %in% names(emb)) .data$generacion else NULL
+    ))
   } else {
     emb
   }
   base_ytd <- if ("es_registrado_sin_equipo" %in% names(emb_ytd)) {
     emb_ytd |> dplyr::filter(.data$es_registrado_sin_equipo)
   } else if ("pertenece_equipo" %in% names(emb_ytd)) {
-    emb_ytd |> dplyr::filter(origenes_brokers_es_registrado_sin_equipo(.data$pertenece_equipo))
+    emb_ytd |> dplyr::filter(origenes_brokers_es_registrado_sin_equipo(
+      .data$pertenece_equipo,
+      if ("generacion" %in% names(emb_ytd)) .data$generacion else NULL
+    ))
   } else {
     emb_ytd
   }
@@ -1513,15 +1569,29 @@ origenes_resumen_embajadores_cell_rows <- function(bundle, metric, period_col) {
   base <- if ("es_registrado_sin_equipo" %in% names(cohort)) {
     cohort |> dplyr::filter(.data$es_registrado_sin_equipo)
   } else if ("pertenece_equipo" %in% names(cohort)) {
-    cohort |> dplyr::filter(origenes_brokers_es_registrado_sin_equipo(.data$pertenece_equipo))
+    cohort |> dplyr::filter(origenes_brokers_es_registrado_sin_equipo(
+      .data$pertenece_equipo,
+      if ("generacion" %in% names(cohort)) .data$generacion else NULL
+    ))
   } else {
     cohort
   }
+
+  canal_hit <- origenes_brokers_canal_label(metric)
+  canal_names <- origenes_brokers_canal_label(origenes_resumen_canales_conversion())
+  is_canal_row <- !is.na(canal_hit) && nzchar(canal_hit) && canal_hit %in% canal_names
 
   filtered <- if (grepl("^Registrados totales$", metric, ignore.case = TRUE)) {
     cohort
   } else if (grepl("sin equipos", metric, ignore.case = TRUE)) {
     base
+  } else if (is_canal_row) {
+    if (!"canal" %in% names(base) || !nrow(base)) {
+      base[0, , drop = FALSE]
+    } else {
+      labs <- origenes_brokers_canal_label(base$canal)
+      base[!is.na(labs) & labs == canal_hit, , drop = FALSE]
+    }
   } else if (grepl("capacitaci", metric, ignore.case = TRUE)) {
     origenes_resumen_en_capacitacion_rows(emb, bounds$start, bounds$end)
   } else if (grepl("^Cita agendada$", metric, ignore.case = TRUE)) {

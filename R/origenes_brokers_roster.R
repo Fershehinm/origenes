@@ -1370,11 +1370,11 @@ origenes_brokers_auto_conciliacion <- function(nombre_app, crm_names) {
   if (length(miss)) {
     out[miss] <- vapply(
       keys[miss],
-      origenes_match_key_to_lista,
-      character(1),
-      lista_keys = lista$embajador_key,
-      lista_names = lista$embajador
-    )
+    origenes_match_key_to_lista,
+    character(1),
+    lista_keys = lista$embajador_key,
+    lista_names = lista$embajador
+  )
   }
   out
 }
@@ -1612,7 +1612,7 @@ origenes_brokers_roster_build <- function(origin_obj,
       ) |>
       dplyr::left_join(
         ov_hist |>
-          dplyr::select(
+    dplyr::select(
             "person_key",
             ov_conciliacion = "conciliacion",
             ov_canal = "canal",
@@ -1823,9 +1823,17 @@ origenes_brokers_import_graduacion <- function(embajadores,
   ))
 }
 
-#' Registrados sin equipos: todos excepto Pertenece a un equipo = "sí".
-#' Cuenta "no" y vacío; solo excluye "sí".
+#' Registrados sin equipos (alineado a Sheets):
+#' - Pertenece vacío o "no", más
+#' - Pertenece "sí" con Generación no vacía (vinieron a capacitación).
+#' Solo se excluye a quien pertenece a un equipo y aún no tiene Generación.
 origenes_brokers_es_registrado_sin_equipo <- function(pertenece_equipo, generacion = NULL) {
-  # generacion se ignora (compat. de firma); el criterio es solo pertenece ≠ sí.
-  !dplyr::coalesce(as.logical(pertenece_equipo), FALSE)
+  sin_eq <- !dplyr::coalesce(as.logical(pertenece_equipo), FALSE)
+  if (is.null(generacion)) {
+    return(sin_eq)
+  }
+  gen <- as.character(generacion)
+  gen_ok <- !is.na(gen) & nzchar(trimws(gen))
+  # vacío/no ∪ (sí ∧ Generación)  ≡  !pertenece ∨ Generación
+  sin_eq | gen_ok
 }
