@@ -98,5 +98,7 @@ Secrets requeridos en el repo (Settings → Secrets and variables → Actions):
 | `SHINYAPPS_SECRET` | secret rsconnect |
 | `ORIGENES_SHINYAPPS_ACCOUNT` | opcional; default `division2cbr` |
 
+No hace falta Postgres ni `ORIGENES_VENDEDORES_BUNDLE` en Actions: el job baja Bubble live y arma `meetings_clean` / `sales_clean` en el build.
+
 El CSV Embajadores en `data/brokers/raw/` no se actualiza en este job (sigue como
 snapshot en el repo). Ver `env.example` para el resto de variables locales.

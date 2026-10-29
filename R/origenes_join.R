@@ -35,6 +35,233 @@ origenes_origin_key <- function(x) {
   origenes_normalize_key(x)
 }
 
+#' Clean mínimo desde Bubble raw (CI / fetch live sin cache vendedores).
+#' Suficiente para el join Orígenes; no replica todo el ETL de vendedores.
+origenes_rscg_empty_meetings_clean <- function() {
+  tibble::tibble(
+    id = character(),
+    fecha = as.Date(character()),
+    vendedor = character(),
+    origen = character(),
+    tipo = character(),
+    convertida = logical(),
+    status_os = character(),
+    first_meeting = logical(),
+    repurchase = logical(),
+    status_bucket = character(),
+    lead_contact_id = character(),
+    lead_nombre = character(),
+    proyectos = character(),
+    intencion = character(),
+    modalidad_entrega = character(),
+    budget_os = character(),
+    budget_lo_m = numeric(),
+    budget_hi_m = numeric(),
+    equipo = character(),
+    cuenta_en_kpi = logical(),
+    convertida_sale_id = character(),
+    convertida_via = character()
+  )
+}
+
+origenes_rscg_empty_sales_clean <- function() {
+  tibble::tibble(
+    id = character(),
+    fecha = as.Date(character()),
+    fecha_pipeline = as.Date(character()),
+    vendedor = character(),
+    origen = character(),
+    monto = numeric(),
+    monto_facturacion = numeric(),
+    monto_proyeccion = numeric(),
+    estado_venta = character(),
+    approval_in_progress = logical(),
+    n_unidades = numeric(),
+    client_contact_id = character(),
+    cliente_nombre = character(),
+    repurchase = logical(),
+    proyectos = character(),
+    equipo = character()
+  )
+}
+
+origenes_rscg_bake_meetings_clean <- function(meetings_raw) {
+  if (is.null(meetings_raw) || !nrow(meetings_raw)) {
+    return(origenes_rscg_empty_meetings_clean())
+  }
+  fm <- tolower(stringr::str_squish(origenes_pick_col(
+    meetings_raw, c("First.meeting", "First_meeting", "first_meeting")
+  )))
+  tibble::tibble(
+    id = origenes_id_norm(origenes_pick_col(
+      meetings_raw, c("X_id", "_id", "id", "unique.id")
+    )),
+    fecha = as.Date(origenes_parse_date(origenes_pick_col(
+      meetings_raw, c("Start.date", "Start_date", "fecha")
+    ))),
+    vendedor = dplyr::na_if(stringr::str_squish(origenes_pick_col(
+      meetings_raw, c("Seller.full.name", "Seller.Full.Name", "Seller")
+    )), ""),
+    origen = dplyr::na_if(stringr::str_squish(origenes_pick_col(
+      meetings_raw, c("Origin_OS", "origen")
+    )), ""),
+    tipo = NA_character_,
+    convertida = FALSE,
+    status_os = dplyr::na_if(stringr::str_squish(origenes_pick_col(
+      meetings_raw, c("Status_OS", "Status")
+    )), ""),
+    first_meeting = fm %in% c("true", "1", "yes", "si", "sí"),
+    repurchase = FALSE,
+    status_bucket = NA_character_,
+    lead_contact_id = origenes_id_norm(origenes_pick_col(
+      meetings_raw, c("Lead_contact_R", "Lead.contact_R", "lead_contact_id")
+    )),
+    lead_nombre = dplyr::na_if(stringr::str_squish(origenes_pick_col(
+      meetings_raw, c("Lead.full.name", "Lead.Full.Name")
+    )), ""),
+    proyectos = dplyr::na_if(stringr::str_squish(origenes_pick_col(
+      meetings_raw, c("Project_OS", "Project_OSL", "proyectos")
+    )), ""),
+    intencion = dplyr::na_if(stringr::str_squish(origenes_pick_col(
+      meetings_raw, c("Intention_OS", "intencion")
+    )), ""),
+    modalidad_entrega = NA_character_,
+    budget_os = NA_character_,
+    budget_lo_m = NA_real_,
+    budget_hi_m = NA_real_,
+    equipo = NA_character_,
+    cuenta_en_kpi = TRUE,
+    convertida_sale_id = NA_character_,
+    convertida_via = NA_character_
+  )
+}
+
+origenes_rscg_bake_sales_clean <- function(sales_raw) {
+  if (is.null(sales_raw) || !nrow(sales_raw)) {
+    return(origenes_rscg_empty_sales_clean())
+  }
+  fecha <- as.Date(origenes_parse_date(origenes_pick_col(
+    sales_raw, c("Date.of.sale", "fecha", "Closed.date", "Created.Date")
+  )))
+  appr <- tolower(stringr::str_squish(origenes_pick_col(
+    sales_raw, c("Approval.in.Progress", "Approval_in_Progress", "approval_in_progress")
+  )))
+  repu <- tolower(stringr::str_squish(origenes_pick_col(
+    sales_raw, c("Repurchase", "repurchase")
+  )))
+  monto <- suppressWarnings(as.numeric(origenes_pick_col(
+    sales_raw, c("Purchase.price", "Sale.price", "Amount", "Price", "monto")
+  )))
+  unidades <- suppressWarnings(as.numeric(origenes_pick_col(
+    sales_raw, c("Units", "n_unidades", "Number.of.units")
+  )))
+  tibble::tibble(
+    id = origenes_id_norm(origenes_pick_col(
+      sales_raw, c("X_id", "_id", "id", "unique.id")
+    )),
+    fecha = fecha,
+    fecha_pipeline = fecha,
+    vendedor = dplyr::na_if(stringr::str_squish(origenes_pick_col(
+      sales_raw, c("Seller.full.name", "Seller.Full.Name", "Seller")
+    )), ""),
+    origen = dplyr::na_if(stringr::str_squish(origenes_pick_col(
+      sales_raw, c("Origin_OS", "origen")
+    )), ""),
+    monto = monto,
+    monto_facturacion = monto,
+    monto_proyeccion = monto,
+    estado_venta = dplyr::na_if(stringr::str_squish(origenes_pick_col(
+      sales_raw, c("Status_OS", "Status", "estado_venta")
+    )), ""),
+    approval_in_progress = appr %in% c("true", "1", "yes", "si", "sí"),
+    n_unidades = dplyr::coalesce(unidades, 0),
+    client_contact_id = origenes_id_norm(origenes_pick_col(
+      sales_raw, c("Client_contact_R", "Client.contact_R", "client_contact_id")
+    )),
+    cliente_nombre = dplyr::na_if(stringr::str_squish(origenes_pick_col(
+      sales_raw, c("Client.full.name", "Client.Full.Name", "cliente")
+    )), ""),
+    repurchase = repu %in% c("true", "1", "yes", "si", "sí"),
+    proyectos = dplyr::na_if(stringr::str_squish(origenes_pick_col(
+      sales_raw, c("Project_OSL", "Project_OS", "proyectos")
+    )), ""),
+    equipo = NA_character_
+  )
+}
+
+origenes_rscg_bake_lead_first_index <- function(meetings_clean) {
+  empty <- tibble::tibble(
+    lead_contact_id = character(),
+    cohort_fecha = as.Date(character()),
+    cohort_vendedor = character(),
+    cohort_origen = character(),
+    meeting_id = character()
+  )
+  if (is.null(meetings_clean) || !nrow(meetings_clean)) {
+    return(empty)
+  }
+  need <- c("lead_contact_id", "fecha", "first_meeting", "id", "status_os")
+  if (!all(need %in% names(meetings_clean))) {
+    return(empty)
+  }
+  realizada <- origenes_normalize_key(meetings_clean$status_os) == "realizada"
+  ok <- realizada &
+    dplyr::coalesce(as.logical(meetings_clean$first_meeting), FALSE) &
+    !is.na(meetings_clean$fecha) &
+    !is.na(meetings_clean$lead_contact_id) &
+    nzchar(meetings_clean$lead_contact_id)
+  m <- meetings_clean[ok, , drop = FALSE]
+  if (!nrow(m)) {
+    return(empty)
+  }
+  m <- m[order(m$lead_contact_id, m$fecha, m$id), , drop = FALSE]
+  m <- m[!duplicated(m$lead_contact_id), , drop = FALSE]
+  tibble::tibble(
+    lead_contact_id = origenes_id_norm(m$lead_contact_id),
+    cohort_fecha = as.Date(m$fecha),
+    cohort_vendedor = as.character(m$vendedor %||% NA_character_),
+    cohort_origen = dplyr::if_else(
+      is.na(m$origen) | !nzchar(as.character(m$origen)),
+      "Sin origen",
+      as.character(m$origen)
+    ),
+    meeting_id = origenes_id_norm(m$id)
+  )
+}
+
+#' Si el bundle solo trae raw (fetch live en CI), arma clean + índice.
+origenes_rscg_ensure_clean <- function(bundle) {
+  if (is.null(bundle)) {
+    return(bundle)
+  }
+  has_m <- is.data.frame(bundle$meetings_clean) &&
+    nrow(bundle$meetings_clean) > 0L &&
+    "origen" %in% names(bundle$meetings_clean)
+  has_s <- is.data.frame(bundle$sales_clean) &&
+    nrow(bundle$sales_clean) > 0L &&
+    "origen" %in% names(bundle$sales_clean)
+  if (!has_m) {
+    message("Bake meetings_clean desde meetings_raw…")
+    bundle$meetings_clean <- origenes_rscg_bake_meetings_clean(
+      bundle$meetings_raw %||% tibble::tibble()
+    )
+  }
+  if (!has_s) {
+    message("Bake sales_clean desde sales_raw…")
+    bundle$sales_clean <- origenes_rscg_bake_sales_clean(
+      bundle$sales_raw %||% tibble::tibble()
+    )
+  }
+  idx <- bundle$lead_first_meeting_index
+  if (!is.data.frame(idx) || !nrow(idx)) {
+    bundle$lead_first_meeting_index <- origenes_rscg_bake_lead_first_index(
+      bundle$meetings_clean
+    )
+  }
+  bundle$clean_built_at <- bundle$clean_built_at %||% Sys.time()
+  bundle
+}
+
 origenes_load_rscg_bundle <- function(root = Sys.getenv("ORIGENES_APP_ROOT", ".")) {
   origenes_data_cached(paste0("rscg::", normalizePath(root, winslash = "/", mustWork = FALSE)), function() {
     path <- Sys.getenv("ORIGENES_VENDEDORES_BUNDLE", unset = "")
@@ -42,17 +269,18 @@ origenes_load_rscg_bundle <- function(root = Sys.getenv("ORIGENES_APP_ROOT", "."
       b <- readRDS(path)
       attr(b, "source_path") <- normalizePath(path, winslash = "/", mustWork = FALSE)
       attr(b, "source_label") <- "vendedores_bundle"
-      return(b)
+      return(origenes_rscg_ensure_clean(b))
     }
     cache <- file.path(root, "data", "cache", "latest.rds")
     if (file.exists(cache)) {
       b <- readRDS(cache)
       attr(b, "source_path") <- normalizePath(cache, winslash = "/", mustWork = FALSE)
       attr(b, "source_label") <- "origenes_cache"
-      return(b)
+      return(origenes_rscg_ensure_clean(b))
     }
     if (origenes_bubble_configured()) {
       b <- origenes_bubble_fetch_bundle()
+      b <- origenes_rscg_ensure_clean(b)
       attr(b, "source_label") <- "bubble_live"
       return(b)
     }
@@ -128,9 +356,35 @@ origenes_ambassador_type_flags <- function(type_os) {
   )
 }
 
+origenes_standardize_amb_contacts_empty <- function() {
+  tibble::tibble(
+    amb_contact_id = character(),
+    rscg_lead_id = character(),
+    nombre = character(),
+    nombre_key = character(),
+    email = character(),
+    type_os = character(),
+    status_os = character(),
+    origin_os = character(),
+    origin_key = character(),
+    first_meeting = logical(),
+    prospecting_method = character(),
+    last_meeting_date = as.Date(character()),
+    fecha_registro = as.Date(character()),
+    origin_team_id = character(),
+    origin_challenge_id = character(),
+    is_ambassador = logical(),
+    is_nxtgen_ambassador = logical(),
+    is_broker_ambassador = logical(),
+    is_other_ambassador = logical(),
+    is_prospecto = logical(),
+    matched_rscg_lead = logical()
+  )
+}
+
 origenes_standardize_amb_contacts <- function(contact) {
   if (is.null(contact) || !nrow(contact)) {
-    return(tibble::tibble())
+    return(origenes_standardize_amb_contacts_empty())
   }
   flags <- origenes_ambassador_type_flags(contact$Type_OS)
   tibble::tibble(
@@ -167,9 +421,30 @@ origenes_standardize_amb_contacts <- function(contact) {
     )
 }
 
+origenes_standardize_amb_meetings_empty <- function() {
+  tibble::tibble(
+    amb_meeting_id = character(),
+    rscg_meeting_id = character(),
+    amb_contact_id = character(),
+    fecha_cita = as.Date(character()),
+    status_os = character(),
+    origin_os = character(),
+    origin_key = character(),
+    first_meeting = logical(),
+    prospecting_method = character(),
+    vendedor = character(),
+    lead_nombre = character(),
+    project_os = character(),
+    intention_os = character(),
+    product_type_os = character(),
+    origin_team_id = character(),
+    matched_rscg_meeting = logical()
+  )
+}
+
 origenes_standardize_amb_meetings <- function(meeting) {
   if (is.null(meeting) || !nrow(meeting)) {
-    return(tibble::tibble())
+    return(origenes_standardize_amb_meetings_empty())
   }
   tibble::tibble(
     amb_meeting_id = origenes_id_norm(meeting$X_id),
@@ -197,9 +472,21 @@ origenes_join_diagnostics <- function(amb, rscg) {
 
   rscg_meetings <- rscg$meetings_raw %||% tibble::tibble()
   rscg_sales <- rscg$sales_raw %||% tibble::tibble()
-  rscg_mids <- unique(na.omit(origenes_id_norm(rscg_meetings$X_id)))
-  rscg_leads <- unique(na.omit(origenes_id_norm(rscg_meetings$Lead_contact_R)))
-  rscg_clients <- unique(na.omit(origenes_id_norm(rscg_sales$Client_contact_R)))
+  rscg_mids <- if (nrow(rscg_meetings) && "X_id" %in% names(rscg_meetings)) {
+    unique(na.omit(origenes_id_norm(rscg_meetings$X_id)))
+  } else {
+    character()
+  }
+  rscg_leads <- if (nrow(rscg_meetings) && "Lead_contact_R" %in% names(rscg_meetings)) {
+    unique(na.omit(origenes_id_norm(rscg_meetings$Lead_contact_R)))
+  } else {
+    character()
+  }
+  rscg_clients <- if (nrow(rscg_sales) && "Client_contact_R" %in% names(rscg_sales)) {
+    unique(na.omit(origenes_id_norm(rscg_sales$Client_contact_R)))
+  } else {
+    character()
+  }
   rscg_people <- unique(c(rscg_leads, rscg_clients))
 
   amb_mids <- unique(na.omit(amb_m$rscg_meeting_id))
@@ -243,8 +530,14 @@ origenes_build_origin_canonical <- function(origin_label,
   amb_m <- origenes_standardize_amb_meetings(amb$meeting)
   amb_team <- amb$team %||% tibble::tibble()
 
-  meetings_clean <- rscg$meetings_clean %||% tibble::tibble()
-  sales_clean <- rscg$sales_clean %||% tibble::tibble()
+  meetings_clean <- rscg$meetings_clean %||% origenes_rscg_empty_meetings_clean()
+  sales_clean <- rscg$sales_clean %||% origenes_rscg_empty_sales_clean()
+  if (!"origen" %in% names(meetings_clean)) {
+    meetings_clean <- origenes_rscg_empty_meetings_clean()
+  }
+  if (!"origen" %in% names(sales_clean)) {
+    sales_clean <- origenes_rscg_empty_sales_clean()
+  }
   meetings_raw <- rscg$meetings_raw %||% tibble::tibble()
 
   # Embajadores del hub (registro): Type_OS manda; Origin_OS suele venir vacío.
