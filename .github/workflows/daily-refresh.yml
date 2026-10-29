@@ -46,7 +46,8 @@ jobs:
       - name: Install R packages
         uses: r-lib/actions/setup-r-dependencies@v2
         with:
-          extra-packages: any::rsconnect
+          # cpp11: LinkingTo de tidyverse; sin él rsconnect/renv aborta el snapshot
+          extra-packages: any::rsconnect, any::cpp11, any::renv
           needs: deploy
 
       - name: Check API secrets

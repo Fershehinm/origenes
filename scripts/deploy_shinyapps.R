@@ -12,6 +12,14 @@ if (!requireNamespace("rsconnect", quietly = TRUE)) {
   stop("Instala rsconnect con install.packages('rsconnect').", call. = FALSE)
 }
 
+# rsconnect snapshot (renv) falla si falta un LinkingTo declarado por deps.
+for (pkg in c("cpp11", "renv")) {
+  if (!requireNamespace(pkg, quietly = TRUE)) {
+    message("Instalando ", pkg, " para el snapshot de deploy…")
+    install.packages(pkg, repos = "https://cloud.r-project.org")
+  }
+}
+
 file_arg <- grep("^--file=", commandArgs(trailingOnly = FALSE), value = TRUE)
 root <- if (length(file_arg)) {
   normalizePath(

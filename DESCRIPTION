@@ -17,9 +17,11 @@ Imports:
     tibble,
     tidyr,
     httr2,
-    jsonlite
+    jsonlite,
+    cpp11
 Suggests:
     rsconnect
 Config/Needs/deploy:
-    rsconnect
+    rsconnect,
+    cpp11
 License: MIT
