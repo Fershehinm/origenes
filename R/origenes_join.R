@@ -518,6 +518,22 @@ origenes_join_diagnostics <- function(amb, rscg) {
   )
 }
 
+#' Filtra filas cuyo origen canónico coincide; nunca usa `.data$origen`.
+origenes_filter_by_origin_key <- function(df, target_origin_key, origin_col = "origen") {
+  if (!is.data.frame(df)) {
+    return(origenes_rscg_empty_meetings_clean())
+  }
+  if (!origin_col %in% names(df)) {
+    return(df[FALSE, , drop = FALSE])
+  }
+  if (!nrow(df)) {
+    return(df)
+  }
+  keep <- origenes_origin_key(df[[origin_col]]) == target_origin_key
+  keep[is.na(keep)] <- FALSE
+  df[keep, , drop = FALSE]
+}
+
 #' Dataset canónico por origen (NxtGen / Broker / …).
 origenes_build_origin_canonical <- function(origin_label,
                                             amb,
@@ -526,19 +542,42 @@ origenes_build_origin_canonical <- function(origin_label,
                                             root = Sys.getenv("ORIGENES_APP_ROOT", "."),
                                             name_map = NULL) {
   target_origin_key <- origenes_origin_key(origin_label)
+  # CI: bubble_live solo trae raw; re-asegura clean aunque el load ya lo haya intentado.
+  rscg <- origenes_rscg_ensure_clean(rscg)
   amb_c <- origenes_standardize_amb_contacts(amb$contact)
   amb_m <- origenes_standardize_amb_meetings(amb$meeting)
   amb_team <- amb$team %||% tibble::tibble()
 
-  meetings_clean <- rscg$meetings_clean %||% origenes_rscg_empty_meetings_clean()
-  sales_clean <- rscg$sales_clean %||% origenes_rscg_empty_sales_clean()
-  if (!"origen" %in% names(meetings_clean)) {
-    meetings_clean <- origenes_rscg_empty_meetings_clean()
+  meetings_clean <- rscg$meetings_clean
+  sales_clean <- rscg$sales_clean
+  if (!is.data.frame(meetings_clean) || !"origen" %in% names(meetings_clean)) {
+    message(
+      "meetings_clean sin columna origen; cols=",
+      paste(names(meetings_clean %||% list()), collapse = ",")
+    )
+    meetings_clean <- origenes_rscg_bake_meetings_clean(
+      rscg$meetings_raw %||% tibble::tibble()
+    )
   }
-  if (!"origen" %in% names(sales_clean)) {
-    sales_clean <- origenes_rscg_empty_sales_clean()
+  if (!is.data.frame(sales_clean) || !"origen" %in% names(sales_clean)) {
+    message(
+      "sales_clean sin columna origen; cols=",
+      paste(names(sales_clean %||% list()), collapse = ",")
+    )
+    sales_clean <- origenes_rscg_bake_sales_clean(
+      rscg$sales_raw %||% tibble::tibble()
+    )
   }
   meetings_raw <- rscg$meetings_raw %||% tibble::tibble()
+  message(
+    sprintf(
+      "[%s] meetings_clean=%d cols=%s | sales_clean=%d",
+      origin_label,
+      nrow(meetings_clean),
+      paste(intersect(c("id", "origen", "lead_contact_id"), names(meetings_clean)), collapse = "+"),
+      nrow(sales_clean)
+    )
+  )
 
   # Embajadores del hub (registro): Type_OS manda; Origin_OS suele venir vacío.
   embajadores <- amb_c |> dplyr::filter(.data$is_ambassador)
@@ -559,8 +598,7 @@ origenes_build_origin_canonical <- function(origin_label,
     dplyr::filter(.data$origin_key == target_origin_key)
 
   # Verdad comercial: Bubble
-  meetings_rscg <- meetings_clean |>
-    dplyr::filter(origenes_origin_key(.data$origen) == target_origin_key) |>
+  meetings_rscg <- origenes_filter_by_origin_key(meetings_clean, target_origin_key) |>
     dplyr::mutate(
       rscg_meeting_id = origenes_id_norm(.data$id),
       lead_contact_id = origenes_id_norm(.data$lead_contact_id)
@@ -635,8 +673,7 @@ origenes_build_origin_canonical <- function(origin_label,
       )
   }
 
-  sales <- sales_clean |>
-    dplyr::filter(origenes_origin_key(.data$origen) == target_origin_key) |>
+  sales <- origenes_filter_by_origin_key(sales_clean, target_origin_key) |>
     dplyr::mutate(
       rscg_sale_id = origenes_id_norm(.data$id),
       client_contact_id = origenes_id_norm(.data$client_contact_id)
@@ -656,8 +693,11 @@ origenes_build_origin_canonical <- function(origin_label,
     dplyr::mutate(join_contact_hub = !is.na(.data$amb_contact_id))
 
   teams <- if (nrow(amb_team) && "Predefined.Origin_OS" %in% names(amb_team)) {
-    amb_team |>
-      dplyr::filter(origenes_origin_key(.data$Predefined.Origin_OS) == target_origin_key)
+    origenes_filter_by_origin_key(
+      amb_team,
+      target_origin_key,
+      origin_col = "Predefined.Origin_OS"
+    )
   } else {
     amb_team[0, , drop = FALSE]
   }
