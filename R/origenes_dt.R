@@ -45,6 +45,30 @@ origenes_dt_sort_callback <- htmlwidgets::JS(
   "}"
 )
 
+#' Filas de canal bajo "Registrados sin equipos" (submétricas en la tabla).
+origenes_dt_metric_subrow_labels <- function() {
+  if (exists("origenes_resumen_canales_conversion", mode = "function")) {
+    origenes_resumen_canales_conversion()
+  } else {
+    c("Arturo Cole", "Eduardo Salazar", "Otros")
+  }
+}
+
+origenes_dt_metric_subrow_callback <- function(labels = origenes_dt_metric_subrow_labels()) {
+  labs_json <- jsonlite::toJSON(as.character(labels), auto_unbox = FALSE)
+  htmlwidgets::JS(
+    paste0(
+      "function(row, data, dataIndex) {",
+      "  var labs = ", labs_json, ";",
+      "  var label = (data && data.length) ? String(data[0]).trim() : '';",
+      "  if (labs.indexOf(label) >= 0) {",
+      "    $(row).addClass('or-dt-metric-subrow');",
+      "  }",
+      "}"
+    )
+  )
+}
+
 #' Datatable ordenable para métricas (Analytics) o detalle (Citas / Ventas).
 #' Métricas: sin scrollX interno (el wrap hace scroll) para no desalinear header/body.
 origenes_datatable <- function(data, style = c("metric", "detail")) {
@@ -81,7 +105,8 @@ origenes_datatable <- function(data, style = c("metric", "detail")) {
       orderable = is_detail,
       type = "or-smart"
     )),
-    initComplete = if (is_detail) origenes_dt_sort_callback else NULL
+    initComplete = if (is_detail) origenes_dt_sort_callback else NULL,
+    createdRow = if (!is_detail) origenes_dt_metric_subrow_callback() else NULL
   )
 
   DT::datatable(

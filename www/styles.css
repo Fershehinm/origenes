@@ -552,6 +552,17 @@ h4 {
   z-index: 4;
 }
 
+/* Submétricas de canal (Arturo / Eduardo / Otros): mismo tamaño, sin negrita, a la derecha */
+.or-metric-table-wrap table.or-dt--metric tbody tr.or-dt-metric-subrow td {
+  font-weight: 400;
+}
+
+.or-metric-table-wrap table.or-dt--metric tbody tr.or-dt-metric-subrow td:first-child {
+  text-align: right;
+  font-weight: 400;
+  padding-left: 2rem;
+}
+
 .or-metric-table-wrap table.or-dt--metric td:nth-child(2),
 .or-metric-table-wrap table.or-dt--metric th:nth-child(2) {
   text-align: right;

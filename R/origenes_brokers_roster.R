@@ -19,7 +19,8 @@ origenes_brokers_canal_choices <- function() {
     "Renata Pereyra",
     "Yemi Alfie",
     "Rodrigo Espriu",
-    "Marketing"
+    "Marketing",
+    "Otros"
   )
 }
 

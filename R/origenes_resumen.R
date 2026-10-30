@@ -760,8 +760,9 @@ origenes_resumen_en_capacitacion_rows <- function(emb, start, end) {
 #'    cohorte: Pertenece ≠ "sí", o Pertenece=sí con Generación no vacía
 #'    → nrow(base). Las filas 3–5 y 7–11 se calculan sobre esta base.
 #'
-#' 3–5. Arturo Cole / Eduardo Salazar / Marketing
-#'    COUNTIFS(Gen Registro, Canal = nombre) sobre la base sin equipos.
+#' 3–5. Arturo Cole / Eduardo Salazar / Otros
+#'    Sobre sin equipos: Canal o referrer_nombre cae en los alias de esa fila
+#'    (Salazar incluye "Eduardo Javier Salazar Perez"; Otros incluye Marketing).
 #'
 #' 6. En capacitación
 #'    COUNTIFS(Embajadores!K, periodo, Embajadores!H, "<>")
@@ -788,19 +789,59 @@ origenes_resumen_en_capacitacion_rows <- function(emb, start, end) {
 #' 11. Conversión activo / primera cita
 #'    Activos / Primera cita.
 origenes_resumen_canales_conversion <- function() {
-  c("Arturo Cole", "Eduardo Salazar", "Marketing")
+  c("Arturo Cole", "Eduardo Salazar", "Otros")
+}
+
+#' Alias de texto (Canal Sheets / referrer User) → fila de la tabla.
+origenes_resumen_canal_aliases <- function() {
+  list(
+    "Arturo Cole" = c("Arturo Cole"),
+    "Eduardo Salazar" = c(
+      "Eduardo Salazar",
+      "Eduardo Javier Salazar Perez",
+      "Eduardo Salazar Yemi Alfie"
+    ),
+    "Otros" = c(
+      "Otros",
+      "Marketing",
+      "Mauricio Sanchez",
+      "Mau Sanchez",
+      "Moi Salame",
+      "Diego Espinosa"
+    )
+  )
+}
+
+origenes_resumen_canal_fold <- function(x) {
+  # Misma idea que origenes_normalize_key: sin acentos, solo [a-z0-9].
+  origenes_normalize_key(x)
+}
+
+origenes_resumen_canal_match_mask <- function(df, canal_name) {
+  if (!nrow(df)) {
+    return(logical())
+  }
+  aliases <- origenes_resumen_canal_aliases()
+  target <- origenes_brokers_canal_label(canal_name)
+  if (is.na(target) || !nzchar(target) || !target %in% names(aliases)) {
+    return(rep(FALSE, nrow(df)))
+  }
+  want <- unique(na.omit(origenes_resumen_canal_fold(aliases[[target]])))
+  hit <- rep(FALSE, nrow(df))
+  if ("canal" %in% names(df)) {
+    canal_f <- origenes_resumen_canal_fold(origenes_brokers_canal_label(df$canal))
+    hit <- hit | (!is.na(canal_f) & canal_f %in% want)
+  }
+  # Referrer del User (Owner → Referrer_R resuelto a nombre), si ya está en el prep.
+  if ("referrer_nombre" %in% names(df)) {
+    ref <- origenes_resumen_canal_fold(df$referrer_nombre)
+    hit <- hit | (!is.na(ref) & ref %in% want)
+  }
+  hit
 }
 
 origenes_resumen_count_canal <- function(df, canal_name) {
-  if (!nrow(df) || !"canal" %in% names(df)) {
-    return(0L)
-  }
-  labs <- origenes_brokers_canal_label(df$canal)
-  target <- origenes_brokers_canal_label(canal_name)
-  if (is.na(target) || !nzchar(target)) {
-    return(0L)
-  }
-  as.integer(sum(!is.na(labs) & labs == target, na.rm = TRUE))
+  as.integer(sum(origenes_resumen_canal_match_mask(df, canal_name), na.rm = TRUE))
 }
 
 origenes_resumen_tabla_embajadores <- function(prep, start, end, granularity = "mensual") {
@@ -1586,12 +1627,7 @@ origenes_resumen_embajadores_cell_rows <- function(bundle, metric, period_col) {
   } else if (grepl("sin equipos", metric, ignore.case = TRUE)) {
     base
   } else if (is_canal_row) {
-    if (!"canal" %in% names(base) || !nrow(base)) {
-      base[0, , drop = FALSE]
-    } else {
-      labs <- origenes_brokers_canal_label(base$canal)
-      base[!is.na(labs) & labs == canal_hit, , drop = FALSE]
-    }
+    base[origenes_resumen_canal_match_mask(base, canal_hit), , drop = FALSE]
   } else if (grepl("capacitaci", metric, ignore.case = TRUE)) {
     origenes_resumen_en_capacitacion_rows(emb, bounds$start, bounds$end)
   } else if (grepl("^Cita agendada$", metric, ignore.case = TRUE)) {

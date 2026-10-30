@@ -578,7 +578,7 @@ origenes_ui <- function() {
     window_title = "Origin Analytics | División 2c",
     header = shiny::tags$head(
       shiny::tags$meta(name = "viewport", content = "width=device-width, initial-scale=1"),
-      shiny::tags$link(rel = "stylesheet", type = "text/css", href = "styles.css?v=53"),
+      shiny::tags$link(rel = "stylesheet", type = "text/css", href = "styles.css?v=55"),
       shiny::tags$script(htmltools::HTML(paste(
         "window.origenesRosterFocusInput = function(el, ev) {",
         "  if (ev && ev.stopPropagation) ev.stopPropagation();",

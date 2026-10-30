@@ -146,19 +146,35 @@ origenes_bubble_fetch_endpoint <- function(endpoint,
   origenes_bubble_records_to_df(all)
 }
 
-#' Descarga meetings + sales desde Bubble (misma API que vendedores).
+#' Descarga meetings + sales + soldproperty desde Bubble (misma API que vendedores).
+#' `soldproperty` trae Purchase.price; sin eso la facturación queda en $0.
 origenes_bubble_fetch_bundle <- function(page_size = 100L, max_pages = 200L) {
   creds <- origenes_bubble_credentials()
   if (!nzchar(creds$base) || !nzchar(creds$token)) {
     stop("Define BUBBLE_BASE y BUBBLE_TOKEN en .Renviron", call. = FALSE)
   }
+  message("Bubble: bajando meeting…")
+  meetings_raw <- origenes_bubble_fetch_endpoint(
+    "meeting", creds$base, creds$token, page_size, max_pages
+  )
+  message("Bubble: bajando sale…")
+  sales_raw <- origenes_bubble_fetch_endpoint(
+    "sale", creds$base, creds$token, page_size, max_pages
+  )
+  message("Bubble: bajando soldproperty…")
+  soldproperty_raw <- tryCatch(
+    origenes_bubble_fetch_endpoint(
+      "soldproperty", creds$base, creds$token, page_size, max_pages
+    ),
+    error = function(e) {
+      message("soldproperty omitido: ", conditionMessage(e))
+      tibble::tibble()
+    }
+  )
   list(
-    meetings_raw = origenes_bubble_fetch_endpoint(
-      "meeting", creds$base, creds$token, page_size, max_pages
-    ),
-    sales_raw = origenes_bubble_fetch_endpoint(
-      "sale", creds$base, creds$token, page_size, max_pages
-    ),
+    meetings_raw = meetings_raw,
+    sales_raw = sales_raw,
+    soldproperty_raw = soldproperty_raw,
     fetched_at = Sys.time(),
     source = "bubble_live"
   )

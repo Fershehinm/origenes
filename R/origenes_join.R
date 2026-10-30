@@ -136,7 +136,37 @@ origenes_rscg_bake_meetings_clean <- function(meetings_raw) {
   )
 }
 
-origenes_rscg_bake_sales_clean <- function(sales_raw) {
+#' Suma Purchase.price / cuenta unidades por sale desde soldproperty (Sale_R).
+origenes_rscg_soldproperty_rollup <- function(sale_ids, soldproperty_raw) {
+  sale_ids <- origenes_id_norm(sale_ids)
+  n <- length(sale_ids)
+  empty <- list(monto = rep(NA_real_, n), n_unidades = rep(0, n))
+  if (!n || is.null(soldproperty_raw) || !nrow(soldproperty_raw)) {
+    return(empty)
+  }
+  sp_sale <- origenes_id_norm(origenes_pick_col(
+    soldproperty_raw, c("Sale_R", "Sale.R", "sale_id", "Sale")
+  ))
+  sp_price <- suppressWarnings(as.numeric(origenes_pick_col(
+    soldproperty_raw,
+    c("Purchase.price", "Purchase_price", "Sale.price", "Price", "monto")
+  )))
+  roll <- tibble::tibble(sale_id = sp_sale, precio = sp_price) |>
+    dplyr::filter(!is.na(.data$sale_id), nzchar(.data$sale_id)) |>
+    dplyr::group_by(.data$sale_id) |>
+    dplyr::summarise(
+      monto = sum(.data$precio, na.rm = TRUE),
+      n_unidades = dplyr::n(),
+      .groups = "drop"
+    )
+  idx <- match(sale_ids, roll$sale_id)
+  list(
+    monto = ifelse(is.na(idx), NA_real_, roll$monto[idx]),
+    n_unidades = ifelse(is.na(idx), 0, as.numeric(roll$n_unidades[idx]))
+  )
+}
+
+origenes_rscg_bake_sales_clean <- function(sales_raw, soldproperty_raw = NULL) {
   if (is.null(sales_raw) || !nrow(sales_raw)) {
     return(origenes_rscg_empty_sales_clean())
   }
@@ -149,16 +179,25 @@ origenes_rscg_bake_sales_clean <- function(sales_raw) {
   repu <- tolower(stringr::str_squish(origenes_pick_col(
     sales_raw, c("Repurchase", "repurchase")
   )))
-  monto <- suppressWarnings(as.numeric(origenes_pick_col(
+  sale_ids <- origenes_id_norm(origenes_pick_col(
+    sales_raw, c("X_id", "_id", "id", "unique.id")
+  ))
+  # El precio vive en soldproperty, no en sale.
+  roll <- origenes_rscg_soldproperty_rollup(sale_ids, soldproperty_raw)
+  monto_raw <- suppressWarnings(as.numeric(origenes_pick_col(
     sales_raw, c("Purchase.price", "Sale.price", "Amount", "Price", "monto")
   )))
-  unidades <- suppressWarnings(as.numeric(origenes_pick_col(
+  monto <- dplyr::coalesce(roll$monto, monto_raw)
+  unidades_raw <- suppressWarnings(as.numeric(origenes_pick_col(
     sales_raw, c("Units", "n_unidades", "Number.of.units")
   )))
+  unidades <- dplyr::coalesce(
+    ifelse(roll$n_unidades > 0, roll$n_unidades, NA_real_),
+    unidades_raw,
+    0
+  )
   tibble::tibble(
-    id = origenes_id_norm(origenes_pick_col(
-      sales_raw, c("X_id", "_id", "id", "unique.id")
-    )),
+    id = sale_ids,
     fecha = fecha,
     fecha_pipeline = fecha,
     vendedor = dplyr::na_if(stringr::str_squish(origenes_pick_col(
@@ -174,7 +213,7 @@ origenes_rscg_bake_sales_clean <- function(sales_raw) {
       sales_raw, c("Status_OS", "Status", "estado_venta")
     )), ""),
     approval_in_progress = appr %in% c("true", "1", "yes", "si", "sí"),
-    n_unidades = dplyr::coalesce(unidades, 0),
+    n_unidades = unidades,
     client_contact_id = origenes_id_norm(origenes_pick_col(
       sales_raw, c("Client_contact_R", "Client.contact_R", "client_contact_id")
     )),
@@ -230,6 +269,7 @@ origenes_rscg_bake_lead_first_index <- function(meetings_clean) {
 }
 
 #' Si el bundle solo trae raw (fetch live en CI), arma clean + índice.
+#' También rellena montos desde soldproperty si la facturación vino en $0.
 origenes_rscg_ensure_clean <- function(bundle) {
   if (is.null(bundle)) {
     return(bundle)
@@ -240,16 +280,62 @@ origenes_rscg_ensure_clean <- function(bundle) {
   has_s <- is.data.frame(bundle$sales_clean) &&
     nrow(bundle$sales_clean) > 0L &&
     "origen" %in% names(bundle$sales_clean)
+  sp <- bundle$soldproperty_raw %||% tibble::tibble()
+  # Cache viejo sin soldproperty: archivo local o Bubble live.
+  if (!is.data.frame(sp) || !nrow(sp)) {
+    sp_path <- Sys.getenv("ORIGENES_SOLDPROPERTY_PATH", unset = "")
+    if (!nzchar(sp_path)) {
+      # Convencion junto al bundle de vendedores
+      vb <- Sys.getenv("ORIGENES_VENDEDORES_BUNDLE", unset = "")
+      if (nzchar(vb)) {
+        cand <- file.path(dirname(vb), "soldproperty.rds")
+        if (file.exists(cand)) sp_path <- cand
+      }
+    }
+    if (!nzchar(sp_path)) {
+      cand2 <- file.path(
+        Sys.getenv("ORIGENES_APP_ROOT", "."),
+        "data", "cache", "soldproperty.rds"
+      )
+      if (file.exists(cand2)) sp_path <- cand2
+    }
+    if (nzchar(sp_path) && file.exists(sp_path)) {
+      message("Leyendo soldproperty desde ", sp_path)
+      sp <- readRDS(sp_path)
+      bundle$soldproperty_raw <- sp
+    } else if (origenes_bubble_configured()) {
+      message("Bubble: soldproperty ausente en cache; bajando…")
+      creds <- origenes_bubble_credentials()
+      sp <- tryCatch(
+        origenes_bubble_fetch_endpoint("soldproperty", creds$base, creds$token),
+        error = function(e) {
+          message("soldproperty omitido: ", conditionMessage(e))
+          tibble::tibble()
+        }
+      )
+      bundle$soldproperty_raw <- sp
+    }
+  }
   if (!has_m) {
     message("Bake meetings_clean desde meetings_raw…")
     bundle$meetings_clean <- origenes_rscg_bake_meetings_clean(
       bundle$meetings_raw %||% tibble::tibble()
     )
   }
-  if (!has_s) {
-    message("Bake sales_clean desde sales_raw…")
+  need_sales_bake <- !has_s
+  if (has_s) {
+    mf <- suppressWarnings(as.numeric(bundle$sales_clean$monto_facturacion %||% NA))
+    need_sales_bake <- !any(!is.na(mf) & mf > 0, na.rm = TRUE) &&
+      is.data.frame(sp) && nrow(sp) > 0L
+    if (need_sales_bake) {
+      message("sales_clean sin montos; re-bake con soldproperty…")
+    }
+  }
+  if (need_sales_bake) {
+    message("Bake sales_clean desde sales_raw (+ soldproperty)…")
     bundle$sales_clean <- origenes_rscg_bake_sales_clean(
-      bundle$sales_raw %||% tibble::tibble()
+      bundle$sales_raw %||% tibble::tibble(),
+      soldproperty_raw = sp
     )
   }
   idx <- bundle$lead_first_meeting_index
